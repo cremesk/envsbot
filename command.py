@@ -1,4 +1,4 @@
-def command(*names, owner_only=False):
+def command(*names, admins_only=False):
     """
     Decorator used to declare bot commands.
 
@@ -6,7 +6,7 @@ def command(*names, owner_only=False):
     ----------
     *names : str
         Command names (aliases) without prefix.
-    owner_only : bool
+    admins_only : bool
         If True, the command is restricted to bot admins.
 
     Example
@@ -20,6 +20,6 @@ def command(*names, owner_only=False):
         func._command_names = names
         func._command = True
         func.primary_name = names[0]
-        func.owner_only = owner_only
+        func.admins_only = admins_only
         return func
     return decorator

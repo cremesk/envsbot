@@ -1,28 +1,56 @@
+"""
+Presence and status management plugin.
+
+This plugin provides commands for displaying and modifying the
+bot's XMPP presence state. The bot presence is broadcast to
+contacts and chatrooms and can include both a presence type
+(e.g. away or do-not-disturb) and a human-readable status message.
+
+Admins can change the status dynamically without restarting
+the bot.
+"""
+
 from command import command
 
+PLUGIN_META = {
+    "name": "status",
+    "version": "1.0",
+    "description": "Bot presence and status management"
+}
 
-@command("status set", owner_only=True)
+
+@command("status set", admins_only=True)
 async def status_set(bot, sender_jid, nick, args, msg, is_room):
     """
     Set the bot presence status.
 
-    Usage
-    -----
+    Command
+    -------
     {prefix}status set <show> [message]
 
     Parameters
     ----------
     show
         Presence type. Supported values:
-        online, chat, away, xa, dnd - (xa: extended away; dnd: Do not disturb)
-
+        - online
+            Available / default presence.
+        - chat
+            Actively available for conversation.
+        - away
+            Temporarily away.
+        - xa
+            Extended away.
+        - dnd
+            Do not disturb.
+    
     message (optional)
-        Status text displayed by the bot.
-
+        Status text displayed alongside the presence.
+    
     Examples
     --------
     {prefix}status set away
     {prefix}status set away Out for lunch
+    {prefix}status set dnd Busy working
     """
 
     target = msg["from"].bare if is_room else msg["from"]
@@ -70,16 +98,19 @@ async def status_set(bot, sender_jid, nick, args, msg, is_room):
 @command("status", "s")
 async def show_status(bot, sender_jid, nick, args, msg, is_room):
     """
-    Show the current bot status.
+    Show the current bot status and message.
 
-    Usage
-    -----
+    Command
+    -------
     {prefix}status
 
-    Displays the presence state and status message
+    Displays the presence state and optional status message
     currently broadcast by the bot.
-    """
 
+    Example
+    -------
+    {prefix}status
+    """
     target = msg["from"].bare if is_room else msg["from"]
     mtype = "groupchat" if is_room else "chat"
 

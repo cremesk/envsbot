@@ -1,8 +1,21 @@
+"""
+Plugin management commands.
+
+This plugin provides commands for inspecting the bot's plugin
+environment at runtime. It allows users to view which plugins
+are currently loaded and provides basic visibility into the
+bot's modular command system.
+
+The commands in this module are primarily informational and
+help administrators or users understand which functionality
+is currently available through installed plugins.
+"""
+
 import logging
 from command import command
 
+# Setup logging
 log = logging.getLogger(__name__)
-
 
 PLUGIN_META = {
     "name": "plugins",
@@ -11,7 +24,7 @@ PLUGIN_META = {
 }
 
 
-@command("plugins", owner_only=True)
+@command("plugins", admins_only=True)
 async def plugins_command(bot, sender, nick, args, msg, is_room):
     """
     Manage bot plugins at runtime.
@@ -27,25 +40,16 @@ async def plugins_command(bot, sender, nick, args, msg, is_room):
     ----------
     list
         Show loaded plugins and plugins available for loading.
-
     load <plugin>
         Load a specific plugin.
-
     load all
         Load all plugins that exist but are not currently loaded.
-
     reload <plugin>
         Reload a specific plugin.
-
     reload all
         Reload all currently loaded plugins.
-
     unload <plugin>
         Unload a currently loaded plugin.
-
-    Permissions
-    ----------
-    Admins / bot owners only.
 
     Usage
     -----
@@ -59,7 +63,7 @@ async def plugins_command(bot, sender, nick, args, msg, is_room):
     Examples
     --------
     {prefix}plugins list
-        Show plugin status.
+        Show plugin list of loaded and available plugins.
 
     {prefix}plugins load help
         Load the "help" plugin.
@@ -73,11 +77,8 @@ async def plugins_command(bot, sender, nick, args, msg, is_room):
     Notes
     -----
     • Plugins are discovered from the bot's plugin directory.
-
     • Loading a plugin registers its commands with the bot.
-
     • Unloading a plugin removes all commands registered by it.
-
     • When reloading all plugins, this plugin ("plugins") reloads itself
       last so the running command is not interrupted.
     """

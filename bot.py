@@ -64,7 +64,7 @@ class PresenceManager:
             )
 
         # log message
-        log.info(f"✅ Status set: '{show}': [{status}]")
+        log.info(f"{self.emoji(show)} Status set: '{show}': [{status}]")
 
     def emoji(self, show=None):
 
@@ -94,13 +94,13 @@ class Bot(slixmpp.ClientXMPP):
         self.plugins = PluginManager(self)
         self.load_plugins()
 
-        self.add_event_handler("session_start", self.start)
-        self.add_event_handler("groupchat_message", self.muc_message)
-        self.add_event_handler("message", self.private_message)
-        self.add_event_handler("muc::%s::got_online" % "*", self.muc_join)
-        self.add_event_handler("muc::%s::got_offline" % "*", self.muc_leave)
+        self.add_event_handler("session_start", self.on_start)
+        self.add_event_handler("groupchat_message", self.on_muc_message)
+        self.add_event_handler("message", self.on_private_message)
+        self.add_event_handler("muc::%s::got_online" % "*", self.on_muc_join)
+        self.add_event_handler("muc::%s::got_offline" % "*", self.on_muc_leave)
         self.add_event_handler("muc::%s::nick_changed" % "*",
-                               self.muc_nick_changed)
+                               self.on_muc_nick_changed)
 
     def load_plugins(self):
         """
@@ -191,7 +191,7 @@ class Bot(slixmpp.ClientXMPP):
                 mtype="chat"
             )
 
-    async def start(self, event):
+    async def on_start(self, event):
 
         self.presence.broadcast()
 
@@ -209,7 +209,7 @@ class Bot(slixmpp.ClientXMPP):
     def is_admin(self, jid):
         return jid in self.admins
 
-    def muc_join(self, presence):
+    def on_muc_join(self, presence):
 
         room = presence["from"].bare
         nick = presence["muc"]["nick"]
@@ -217,7 +217,7 @@ class Bot(slixmpp.ClientXMPP):
         if nick == self.nick:
             self.presence.joined_rooms.add(room)
 
-    def muc_leave(self, presence):
+    def on_muc_leave(self, presence):
 
         room = presence["from"].bare
         nick = presence["muc"]["nick"]
@@ -225,7 +225,7 @@ class Bot(slixmpp.ClientXMPP):
         if nick == self.nick and room in self.presence.joined_rooms:
             self.presence.joined_rooms.remove(room)
 
-    def muc_nick_changed(self, presence):
+    def on_muc_nick_changed(self, presence):
 
         room = presence["from"].bare
         new_nick = presence["muc"]["nick"]
@@ -237,7 +237,7 @@ class Bot(slixmpp.ClientXMPP):
 
             log.info(f"✅ Room Nick changed: '{self.nick}' -> [{new_nick}]")
 
-    async def muc_message(self, msg):
+    async def on_muc_message(self, msg):
 
         if msg["mucnick"] == self.nick:
             return
@@ -251,7 +251,7 @@ class Bot(slixmpp.ClientXMPP):
                 True
             )
 
-    async def private_message(self, msg):
+    async def on_private_message(self, msg):
 
         if msg["type"] in ("chat", "normal"):
             await self.handle_command(
@@ -290,7 +290,7 @@ class Bot(slixmpp.ClientXMPP):
         if not command:
             return
 
-        if (getattr(command, "owner_only", False)
+        if (getattr(command, "admins_only", False)
                 and not self.is_admin(sender_jid)):
             self.send_message(
                 mto=msg["from"].bare if is_room else msg["from"],

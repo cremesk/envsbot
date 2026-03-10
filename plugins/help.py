@@ -1,4 +1,24 @@
+"""
+Help system plugin.
+
+Provides the `{prefix}help` command which lists available commands
+and displays detailed documentation for a specific command.
+
+The help system reads command docstrings dynamically and replaces
+the `{prefix}` placeholder with the currently configured command
+prefix before sending the output to the user.
+
+To reduce chatroom spam, help requests are only allowed in private
+messages to the bot.
+"""
+
 from command import command
+
+PLUGIN_META = {
+    "name": "help",
+    "version": "1.0",
+    "description": "Command help and documentation system"
+}
 
 
 @command("help", "h")
@@ -6,26 +26,28 @@ async def help_command(bot, sender_jid, nick, args, msg, is_room):
     """
     Show available commands or detailed help for a specific command.
 
-    Usage
-    -----
+    Command
+    -------
     {prefix}help
-    {prefix}help command
+    {prefix}help <command>
 
-    Without arguments:
-        Lists all available commands grouped by function. Command aliases
-        appear on one line together. Each line contains the command names
-        with the configured prefix and the first line of the command's
-        docstring.
+    Behavior
+    --------
+    Without arguments
+        Lists all available commands and their aliases.
 
-        Admin-only commands are marked with "(admin)" and are only visible
-        to bot administrators.
-
-    With a command name as argument:
-        Displays the full docstring of the specified command.
+    With a command name
+        Displays the full documentation of the specified command.
 
     Notes
     -----
-    The command name provided as an argument must NOT include the prefix.
+    The requested command name must NOT include the command prefix.
+
+    Examples
+    --------
+    {prefix}help
+    {prefix}help status
+    {prefix}help plugins
     """
 
     target = msg["from"].bare if is_room else msg["from"]
@@ -62,7 +84,7 @@ async def help_command(bot, sender_jid, nick, args, msg, is_room):
 
         func = bot.commands[name]
 
-        if getattr(func, "owner_only", False) and not is_admin:
+        if getattr(func, "admins_only", False) and not is_admin:
             bot.send_message(
                 mto=target,
                 mbody=f"Unknown command: {name}",
@@ -89,7 +111,7 @@ async def help_command(bot, sender_jid, nick, args, msg, is_room):
 
     for name, func in bot.commands.items():
 
-        if getattr(func, "owner_only", False) and not is_admin:
+        if getattr(func, "admins_only", False) and not is_admin:
             continue
 
         grouped.setdefault(func, func._command_names)
@@ -110,7 +132,7 @@ async def help_command(bot, sender_jid, nick, args, msg, is_room):
         first_line = first_line.replace("{prefix}", prefix)
 
         admin_marker = ""
-        if getattr(func, "owner_only", False):
+        if getattr(func, "admins_only", False):
             admin_marker = " (✅ admin)"
 
         if first_line:

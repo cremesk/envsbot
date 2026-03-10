@@ -5,7 +5,6 @@
   "nick": "bluebot",
   "admins": ["<admin>@domain.tld"],
   "prefix": ",",
-
   "avatar": "avatar.jpg",
   "avatar_type": "image/jpeg",
   "vcard": {

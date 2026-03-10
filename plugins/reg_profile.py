@@ -1,8 +1,36 @@
+"""
+Bot profile initialization plugin.
+
+This plugin manages the public profile of the bot on the XMPP
+network during session startup.
+
+Responsibilities
+----------------
+• Publish or update the bot vCard (XEP-0054)
+• Publish or update the bot avatar (XEP-0084)
+• Do Avatar publishing using PEP (Personal Eventing Protocol) (XEP-0163)
+• Avoid unnecessary updates using SHA1 hash comparison
+
+If the configured avatar or vCard data has not changed since
+the last run, the plugin skips the update to reduce network
+traffic.
+
+The profile setup is executed automatically when the XMPP
+session starts.
+"""
+
 import hashlib
 import json
 import logging
 import os
 
+PLUGIN_META = {
+    "name": "profile",
+    "version": "1.0",
+    "description": "Bot avatar and vCard profile management"
+}
+
+# Setup logging
 log = logging.getLogger(__name__)
 
 AVATAR_HASH_FILE = "avatar_hash.asc"
@@ -12,7 +40,6 @@ VCARD_HASH_FILE = "vcard_hash.asc"
 # -------------------------------------------------
 # HASH HELPERS
 # -------------------------------------------------
-
 def read_hash(path):
     """
     Read a previously stored SHA1 hash from a file.
@@ -98,7 +125,6 @@ def sha1(data):
 # -------------------------------------------------
 # VCARD BUILDER
 # -------------------------------------------------
-
 def build_vcard(card, data):
     """
     Recursively populate a vCard stanza from configuration data.
@@ -131,7 +157,6 @@ def build_vcard(card, data):
 # -------------------------------------------------
 # VCARD UPDATE
 # -------------------------------------------------
-
 async def update_vcard(bot):
     """
     Update the XMPP vCard if the configuration has changed.
@@ -192,7 +217,6 @@ async def update_vcard(bot):
 # -------------------------------------------------
 # AVATAR UPDATE
 # -------------------------------------------------
-
 async def update_avatar(bot):
     """
     Publish the bot's avatar using XMPP avatar protocols.
@@ -272,7 +296,6 @@ async def update_avatar(bot):
 # -------------------------------------------------
 # MAIN SETUP
 # -------------------------------------------------
-
 async def setup_profile(bot):
     """
     Initialize the bot profile during session startup.
@@ -305,10 +328,10 @@ async def setup_profile(bot):
 # -------------------------------------------------
 # REGISTER
 # -------------------------------------------------
-
 def register(bot):
     """
-    Register the profile plugin with the bot.
+    Register the profile plugin with the bot. That means it sets the the avatar
+    and the vCard, if they've changed.
 
     Parameters
     ----------
@@ -317,7 +340,7 @@ def register(bot):
 
     Behavior
     --------
-    - Registers the required XMPP extensions.
+    - Registers the required XMPP extensions for vcard-temp, PEP, User Avatar
     - Hooks the profile initialization into the
       ``session_start`` event.
 

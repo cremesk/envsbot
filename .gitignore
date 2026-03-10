@@ -3,3 +3,4 @@ __pycache__/
 config.json
 delete_vcard.py
 avatar_hash.asc
+vcard_hash.asc

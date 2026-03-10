@@ -1,0 +1,338 @@
+import hashlib
+import json
+import logging
+import os
+
+log = logging.getLogger(__name__)
+
+AVATAR_HASH_FILE = "avatar_hash.asc"
+VCARD_HASH_FILE = "vcard_hash.asc"
+
+
+# -------------------------------------------------
+# HASH HELPERS
+# -------------------------------------------------
+
+def read_hash(path):
+    """
+    Read a previously stored SHA1 hash from a file.
+
+    Parameters
+    ----------
+    path : str
+        Path to the file containing the stored hash.
+
+    Returns
+    -------
+    str or None
+        The stored hash string if the file exists and can be read.
+        Returns None if the file does not exist or reading fails.
+
+    Notes
+    -----
+    Hash files are used to avoid unnecessary network updates
+    for avatars and vCards. If the stored hash matches the newly
+    calculated hash, the update will be skipped.
+    """
+
+    if not os.path.exists(path):
+        return None
+
+    try:
+        with open(path, "r") as f:
+            return f.read().strip()
+    except Exception:
+        return None
+
+
+def write_hash(path, value):
+    """
+    Store a SHA1 hash value in a file.
+
+    Parameters
+    ----------
+    path : str
+        File path where the hash should be written.
+    value : str
+        SHA1 hash string to store.
+
+    Notes
+    -----
+    This function is used after successfully publishing
+    an avatar or updating a vCard. The stored hash allows
+    the bot to detect whether the data has changed on
+    subsequent startups.
+    """
+
+    try:
+        with open(path, "w") as f:
+            f.write(value)
+    except Exception as e:
+        log.error(f"Failed writing hash file {path}: {e}")
+
+
+def sha1(data):
+    """
+    Compute the SHA1 hash of arbitrary binary data.
+
+    Parameters
+    ----------
+    data : bytes
+        Data for which the SHA1 digest should be calculated.
+
+    Returns
+    -------
+    str
+        Hexadecimal SHA1 digest string.
+
+    Notes
+    -----
+    SHA1 hashes are used by the XMPP avatar specification
+    and also serve as a lightweight method to detect whether
+    avatar or vCard data has changed since the last run.
+    """
+
+    return hashlib.sha1(data).hexdigest()
+
+
+# -------------------------------------------------
+# VCARD BUILDER
+# -------------------------------------------------
+
+def build_vcard(card, data):
+    """
+    Recursively populate a vCard stanza from configuration data.
+
+    Parameters
+    ----------
+    card : slixmpp.xmlstream.stanzabase.ElementBase
+        The vCard stanza object obtained from the XEP-0054 plugin.
+    data : dict
+        Dictionary containing vCard fields from the configuration.
+
+    Behavior
+    --------
+    - Iterates through all keys in the configuration dictionary.
+    - If the value is another dictionary, a nested vCard element
+      is created and populated recursively.
+    - If the value is a scalar, it is assigned directly to the
+      corresponding vCard field.
+    """
+
+    for key, value in data.items():
+
+        if isinstance(value, dict):
+            sub = card[key]
+            build_vcard(sub, value)
+        else:
+            card[key] = value
+
+
+# -------------------------------------------------
+# VCARD UPDATE
+# -------------------------------------------------
+
+async def update_vcard(bot):
+    """
+    Update the XMPP vCard if the configuration has changed.
+
+    Parameters
+    ----------
+    bot : Bot
+        Instance of the bot class derived from the Slixmpp client.
+
+    Process
+    -------
+    1. Retrieve the vCard configuration from ``bot.config``.
+    2. Serialize the configuration and compute its SHA1 hash.
+    3. Compare the hash with the previously stored hash.
+    4. If unchanged, skip the update.
+    5. Otherwise build and send a new vCard stanza.
+
+    Notes
+    -----
+    The vCard is sent using the XMPP extension
+    XEP-0054 (vCard-temp). Only fields present in the
+    configuration are written to the stanza.
+    """
+
+    cfg = bot.config.get("vcard")
+
+    if not cfg:
+        return
+
+    serialized = json.dumps(cfg, sort_keys=True).encode()
+
+    new_hash = sha1(serialized)
+    stored_hash = read_hash(VCARD_HASH_FILE)
+
+    if stored_hash == new_hash:
+        log.info("vCard unchanged — skipping update")
+        return
+
+    iq = bot.make_iq_set()
+    iq.enable("vcard_temp")
+
+    card = iq["vcard_temp"]
+
+    build_vcard(card, cfg)
+
+    try:
+
+        await iq.send()
+
+        write_hash(VCARD_HASH_FILE, new_hash)
+
+        log.info("✅ vCard updated")
+
+    except Exception as e:
+        log.error(f"vCard update failed: {e}")
+
+
+# -------------------------------------------------
+# AVATAR UPDATE
+# -------------------------------------------------
+
+async def update_avatar(bot):
+    """
+    Publish the bot's avatar using XMPP avatar protocols.
+
+    Parameters
+    ----------
+    bot : Bot
+        Instance of the Slixmpp-based bot.
+
+    Process
+    -------
+    1. Load the avatar file defined in the configuration.
+    2. Calculate the SHA1 hash of the image.
+    3. Compare the hash with the stored avatar hash.
+    4. If unchanged, skip publishing.
+    5. Otherwise publish the avatar using XEP-0084.
+
+    Avatar Requirements
+    -------------------
+    - Supported formats: PNG or JPEG
+    - The image is read as binary data and sent directly
+      through the Slixmpp XEP-0084 helper function.
+
+    Notes
+    -----
+    The avatar is distributed via Personal Eventing Protocol
+    (XEP-0163) so that clients subscribed to the user will
+    automatically receive avatar updates.
+    """
+
+    avatar_path = bot.config.get("avatar")
+    avatar_type = bot.config.get("avatar_type")
+
+    if not avatar_path:
+        return
+
+    if not os.path.exists(avatar_path):
+        log.warning("Avatar file not found")
+        return
+
+    try:
+
+        with open(avatar_path, "rb") as f:
+            avatar = f.read()
+
+        new_hash = sha1(avatar)
+        stored_hash = read_hash(AVATAR_HASH_FILE)
+
+        if stored_hash == new_hash:
+            log.info("Avatar unchanged — skipping upload")
+            return
+
+        if avatar_type not in ("image/png", "image/jpeg"):
+            log.error("❌Avatar must be PNG or JPEG")
+            return
+
+        pubsub = bot["xep_0084"]
+
+        await pubsub.publish_avatar(avatar)
+
+        await pubsub.publish_avatar_metadata([
+            {
+                "id": new_hash,
+                "type": f"{avatar_type}",
+                "bytes": len(avatar)
+            }
+        ])
+
+        write_hash(AVATAR_HASH_FILE, new_hash)
+
+        log.info("✅ Avatar updated")
+
+    except Exception as e:
+        log.error(f"❌Avatar update failed: {e}")
+
+
+# -------------------------------------------------
+# MAIN SETUP
+# -------------------------------------------------
+
+async def setup_profile(bot):
+    """
+    Initialize the bot profile during session startup.
+
+    Parameters
+    ----------
+    bot : Bot
+        Instance of the Slixmpp bot client.
+
+    Behavior
+    --------
+    This function performs all profile-related tasks once
+    the XMPP session has started:
+
+    1. Ensures the roster is available.
+    2. Updates the vCard if necessary.
+    3. Publishes a new avatar if it has changed.
+
+    This function is triggered automatically by the
+    ``session_start`` event handler registered by the plugin.
+    """
+
+    await bot.get_roster()
+
+    await update_vcard(bot)
+
+    await update_avatar(bot)
+
+
+# -------------------------------------------------
+# REGISTER
+# -------------------------------------------------
+
+def register(bot):
+    """
+    Register the profile plugin with the bot.
+
+    Parameters
+    ----------
+    bot : Bot
+        The main bot instance that loads this plugin.
+
+    Behavior
+    --------
+    - Registers the required XMPP extensions.
+    - Hooks the profile initialization into the
+      ``session_start`` event.
+
+    Registered Extensions
+    ---------------------
+    - XEP-0054 : vCard-temp
+    - XEP-0163 : Personal Eventing Protocol
+    - XEP-0084 : User Avatar
+    """
+
+    bot.register_plugin("xep_0054")
+    bot.register_plugin("xep_0163")
+    bot.register_plugin("xep_0084")
+
+    async def handler(event):
+        await setup_profile(bot)
+
+    bot.add_event_handler("session_start", handler)

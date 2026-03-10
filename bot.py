@@ -94,19 +94,38 @@ class Bot(slixmpp.ClientXMPP):
                                self.muc_nick_changed)
 
     def load_plugins(self):
+        import importlib
+        import os
 
-        if not os.path.exists("plugins"):
-            return
+        plugin_dir = "plugins"
 
-        for file in os.listdir("plugins"):
+        for file in os.listdir(plugin_dir):
+            if not file.endswith(".py") or file.startswith("_"):
+                continue
+            module_name = file[:-3]
+            module = importlib.import_module(f"{plugin_dir}.{module_name}")
 
-            if file.endswith(".py") and not file.startswith("__"):
+            # optional plugin initialization
+            if hasattr(module, "register"):
+                module.register(self)
 
-                module_name = f"plugins.{file[:-3]}"
-                module = importlib.import_module(module_name)
+            # -------------------------------------------------
+            # decorator command auto-registration
+            # -------------------------------------------------
+            for attr in vars(module).values():
+                if not callable(attr):
+                    continue
+                if not hasattr(attr, "_command_names"):
+                    continue
+                for name in attr._command_names:
+                    # prevent duplicate command names
+                    if name in self.commands:
+                        raise ValueError(
+                            f"Duplicate command name '{name}' "
+                            f"in plugin '{module_name}'"
+                        )
 
-                if hasattr(module, "register"):
-                    module.register(self)
+                    self.commands[name] = attr
 
     async def start(self, event):
 
@@ -219,6 +238,9 @@ if __name__ == "__main__":
 
     xmpp.register_plugin("xep_0030")
     xmpp.register_plugin("xep_0045")
+    xmpp.register_plugin("xep_0084")
+    xmpp.register_plugin("xep_0163")
+    xmpp.register_plugin("xep_0054")
 
     if xmpp.connect():
         log.info("✅ Connected successfully. Starting event loop...")

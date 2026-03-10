@@ -4,5 +4,32 @@
   "rooms": ["<room>@muc.domain.tld"],
   "nick": "bluebot",
   "admins": ["<admin>@domain.tld"],
-  "prefix": ","
+  "prefix": ",",
+
+  "avatar": "avatar.jpg",
+  "avatar_type": "image/jpeg",
+  "vcard": {
+    "FN": "Blue Bot",
+    "NICKNAME": "bluebot",
+    "N": {
+      "FAMILY": "Bot",
+      "GIVEN": "Blue"
+    },
+    "ORG": {
+      "ORGNAME": "Example Org",
+      "ORGUNIT": "Automation"
+    },
+    "EMAIL": {
+      "USERID": "bot@example.org"
+    },
+    "TEL": {
+      "NUMBER": "+49-000-000000"
+    },
+    "URL": "https://example.org",
+    "ADR": {
+      "LOCALITY": "Berlin",
+      "CTRY": "Germany"
+    },
+    "NOTE": "I'm a bot which is still in development.\nMy pronouns are 'it/its'."
+  }
 }

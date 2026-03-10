@@ -6,6 +6,7 @@ import os
 import sys
 import importlib
 import logging
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -137,6 +138,63 @@ class Bot(slixmpp.ClientXMPP):
                         log.info(
                             f"- Registered command '{name}' from {module_name}"
                         )
+
+    def reply(self, msg, text, mention=True, thread=True, rate_limit=True):
+        """
+        Smart reply helper for plugins.
+
+        Features:
+        - Mentions the sender in group chats
+        - Supports message threading
+        - Formats multi-line responses
+        - Basic per-user rate limiting
+
+        Args:
+            msg: Original message object
+            text (str|list): Reply text or list of lines
+            mention (bool): Mention sender in group chats
+            thread (bool): Thread reply if possible
+            rate_limit (bool): Apply anti-spam limit
+        """
+
+        # Convert list responses into multi-line text
+        if isinstance(text, list):
+            text = "\n".join(text)
+
+        sender = str(msg["from"])
+
+        # basic rate limit storage
+        if not hasattr(self, "_reply_rate"):
+            self._reply_rate = {}
+
+        # Rate limiting (2 replies per second per user)
+        if rate_limit:
+            now = time.time()
+            last = self._reply_rate.get(sender, 0)
+            if now - last < 0.5:
+                return
+            self._reply_rate[sender] = now
+
+        if msg["type"] == "groupchat":
+            body = text
+            if mention:
+                nick = msg.get("mucnick") or msg["from"].resource
+                body = f"{nick}: {text}"
+            reply_kwargs = {}
+            if thread and msg.get("id"):
+                reply_kwargs["replyto"] = msg["id"]
+            self.send_message(
+                mto=msg["from"].bare,
+                mbody=body,
+                mtype="groupchat",
+                **reply_kwargs
+            )
+        else:
+            self.send_message(
+                mto=msg["from"],
+                mbody=text,
+                mtype="chat"
+            )
 
     async def start(self, event):
 

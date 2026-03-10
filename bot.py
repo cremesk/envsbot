@@ -8,6 +8,8 @@ import importlib
 import logging
 import time
 
+from plugin_manager import PluginManager
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # === set up logging ===
@@ -87,6 +89,9 @@ class Bot(slixmpp.ClientXMPP):
 
         self.presence = PresenceManager(self)
 
+        # Plugin Manager
+        self.commands = {}
+        self.plugins = PluginManager(self)
         self.load_plugins()
 
         self.add_event_handler("session_start", self.start)
@@ -98,46 +103,36 @@ class Bot(slixmpp.ClientXMPP):
                                self.muc_nick_changed)
 
     def load_plugins(self):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        plugin_dir = os.path.join(base_dir, "plugins")
-        sys.path.insert(0, base_dir)
+        """
+        Discover and load all plugins from the plugins directory.
+        """
+        log.info("✅ Loading plugins")
+        try:
+            # discover plugin names
+            plugin_list = self.plugins.discover()
+        except Exception as e:
+            log.error(f"[PLUGIN] Failed to discover plugins: {e}")
+            return
 
-        for filename in os.listdir(plugin_dir):
-            if not filename.endswith(".py") or filename.startswith("_"):
-                continue
-            module_name = filename[:-3]
-            module_path = f"plugins.{module_name}"
+        if not plugin_list:
+            log.info("[PLUGIN] No plugins found.")
+            return
 
+        log.info(f"[PLUGIN] Found {len(plugin_list)} plugin(s): "
+                 + f"{', '.join(plugin_list)}")
+
+        loaded = 0
+        failed = 0
+        for plugin_name in plugin_list:
             try:
-                module = importlib.import_module(module_path)
-                importlib.reload(module)
-            except Exception:
-                log.exception(f"❌ Failed to load plugin {module_name}")
-                continue
+                self.plugins.load(plugin_name)
+                log.info(f"[PLUGIN] Loaded: {plugin_name}")
+                loaded += 1
+            except Exception as e:
+                log.error(f"[PLUGIN] Failed to load {plugin_name}: {e}")
+                failed += 1
 
-            log.info(f"✅ Loaded plugin: {module_name}")
-
-            # optional register hook
-            if hasattr(module, "register"):
-                try:
-                    module.register(self)
-                except Exception:
-                    log.exception(f"❌Plugin register() failed: {module_name}")
-
-            # command discovery
-            for attr in vars(module).values():
-                if callable(attr) and hasattr(attr, "_command_names"):
-                    for name in attr._command_names:
-                        if name in self.commands:
-                            log.warning(
-                                f"⚠️ Command '{name}' already registered "
-                                + "(plugin {module_name})"
-                            )
-                            continue
-                        self.commands[name] = attr
-                        log.info(
-                            f"- Registered command '{name}' from {module_name}"
-                        )
+        log.info(f"[PLUGIN] Load complete: {loaded} loaded, {failed} failed.")
 
     def reply(self, msg, text, mention=True, thread=True, rate_limit=True):
         """

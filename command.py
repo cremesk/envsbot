@@ -17,11 +17,9 @@ def command(*names, owner_only=False):
     """
 
     def decorator(func):
-
         func._command_names = names
+        func._command = True
         func.primary_name = names[0]
         func.owner_only = owner_only
-
         return func
-
     return decorator

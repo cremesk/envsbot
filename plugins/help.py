@@ -2,7 +2,7 @@ from command import command
 
 
 @command("help", "h")
-def help_command(bot, sender_jid, nick, args, msg, is_room):
+async def help_command(bot, sender_jid, nick, args, msg, is_room):
     """
     Show available commands or detailed help for a specific command.
 
@@ -30,6 +30,16 @@ def help_command(bot, sender_jid, nick, args, msg, is_room):
 
     target = msg["from"].bare if is_room else msg["from"]
     mtype = "groupchat" if is_room else "chat"
+    #
+    # Block help in chatrooms
+    if mtype == "groupchat":
+        bot.send_message(
+            mto=target,
+            mbody="❌Help requests to the bot only in private chat,"
+            + "to prevent spam.",
+            mtype=mtype
+        )
+        return
 
     prefix = bot.prefix
     is_admin = bot.is_admin(sender_jid)
@@ -117,13 +127,3 @@ def help_command(bot, sender_jid, nick, args, msg, is_room):
         mbody=response,
         mtype=mtype
     )
-
-
-def register(bot):
-    """
-    Plugin registration hook.
-
-    Commands are registered automatically via the decorator
-    system implemented in bot.py.
-    """
-    pass

@@ -10,7 +10,11 @@ Admins can change the status dynamically without restarting
 the bot.
 """
 
+import logging
 from command import command
+
+# Setup logging
+log = logging.getLogger(__name__)
 
 PLUGIN_META = {
     "name": "status",
@@ -93,6 +97,8 @@ async def status_set(bot, sender_jid, nick, args, msg, is_room):
         mbody=response,
         mtype=mtype
     )
+
+    log.info(f"[STATUS] {response}")
 
 
 @command("status", "s")

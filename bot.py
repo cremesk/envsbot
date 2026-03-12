@@ -9,6 +9,7 @@ import time
 
 from plugin_manager import PluginManager
 from logging_setup import setup_logging
+from database import DatabaseManager
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -28,7 +29,7 @@ class PresenceManager:
             "status": "I'm ready to serve you!"
         }
 
-        self.joined_rooms = set()
+        self.joined_rooms = {}
 
         self.emojis = {
             "online": "✅",
@@ -52,17 +53,9 @@ class PresenceManager:
 
         self.bot.send_presence(pshow=show, pstatus=status)
 
-        for room in self.bot.rooms:
-
-            nick = self.bot.plugin["xep_0045"].our_nicks.get(room,
-                                                             self.bot.nick)
-
+        for room, nick in self.joined_rooms.items():
             self.bot.send_presence(
-                pto=f"{room}/{nick}",
-                pshow=show,
-                pstatus=status
-            )
-
+                pto=f"{room}/{nick}", pshow=show, pstatus=status)
         # log message
         log.info(f"{self.emoji(show)} Status set: '{show}': [{status}]")
 
@@ -75,20 +68,26 @@ class PresenceManager:
 class Bot(slixmpp.ClientXMPP):
 
     def __init__(self, config_file):
-
+        # load config file (json)
         with open(config_file) as f:
             self.config = json.load(f)
-
+        # run __init__() from ClientXMPP
         super().__init__(self.config["jid"], self.config["password"])
 
-        self.rooms = self.config.get("rooms", [])
+        self.rooms = []
         self.nick = self.config.get("nick", "bot")
         self.admins = []
-        self.admins.append(self.config.get("owner", None))
+        owner = self.config.get("owner")
+        if owner:
+            self.admins.append(owner)
         self.prefix = self.config.get("prefix", ",")
         self.commands = {}
 
+        # Presence Manager
         self.presence = PresenceManager(self)
+
+        # Database Manager
+        self.db = DatabaseManager(self.config.get("db", "bot.db"))
 
         # Plugin Manager
         self.commands = {}
@@ -102,6 +101,25 @@ class Bot(slixmpp.ClientXMPP):
         self.add_event_handler("muc::%s::got_offline" % "*", self.on_muc_leave)
         self.add_event_handler("muc::%s::nick_changed" % "*",
                                self.on_muc_nick_changed)
+
+    async def autojoin_rooms(self):
+        """
+        Join all rooms marked with autojoin in the database.
+        """
+
+        rows = await self.db.rooms.list()
+        for room_jid, nick, autojoin, status in rows:
+            if not autojoin:
+                continue
+            log.info("Autojoining room %s as %s", room_jid, nick)
+            self.plugin["xep_0045"].join_muc(
+                room_jid,
+                nick,
+                pshow=self.presence.status["show"],
+                pstatus=self.presence.status["status"])
+            if room_jid not in self.rooms:
+                self.rooms.append(room_jid)
+            self.presence.joined_rooms[room_jid] = nick
 
     def load_plugins(self):
         """
@@ -169,7 +187,12 @@ class Bot(slixmpp.ClientXMPP):
             last = self._reply_rate.get(sender, 0)
             if now - last < 0.5:
                 return
-            self._reply_rate[sender] = now
+            if len(self._reply_rate) > 1000:
+                cutoff = now - 60
+                self._reply_rate = {
+                        k: v for k, v in self._reply_rate.items()
+                        if v > cutoff
+                }
 
         if msg["type"] == "groupchat":
             body = text
@@ -193,38 +216,52 @@ class Bot(slixmpp.ClientXMPP):
             )
 
     async def on_start(self, event):
-
+        # send startup presence
         self.presence.broadcast()
-
+        # Get roster
         await self.get_roster()
-
-        for room in self.rooms:
-            self.plugin["xep_0045"].join_muc(room, self.nick)
+        # Connect to DB
+        await self.db.connect()
+        # Autojoin Rooms from DB
+        await self.autojoin_rooms()
+        # send presence again
         self.presence.broadcast()
-
         # set automatic mutual subscriptions
         self.roster.auto_subscribe = True
 
         log.info("✅ Bot started, all rooms joined")
 
     def is_admin(self, jid):
-        return jid in self.admins
+        return slixmpp.JID(jid).bare in self.admins
 
     def on_muc_join(self, presence):
 
         room = presence["from"].bare
         nick = presence["muc"]["nick"]
 
-        if nick == self.nick:
-            self.presence.joined_rooms.add(room)
+        log.info("[MUC] 🤖 Joined room %s as %s", room, nick)
 
     def on_muc_leave(self, presence):
+        """
+        Handle occupants leaving a MUC.
+
+        If the bot itself leaves a room, remove the room from the
+        presence manager's joined_rooms mapping.
+        """
 
         room = presence["from"].bare
         nick = presence["muc"]["nick"]
 
-        if nick == self.nick and room in self.presence.joined_rooms:
-            self.presence.joined_rooms.remove(room)
+        # ignore if we never registered this room
+        if room not in self.presence.joined_rooms:
+            return
+
+        # if the leaving nick is our own nick, we left the room
+        if self.presence.joined_rooms.get(room) == nick:
+            self.presence.joined_rooms.pop(room, None)
+            if room in self.rooms:
+                self.rooms.remove(room)
+            log.info("[MUC] 🚪 Left room %s (%s)", room, nick)
 
     def on_muc_nick_changed(self, presence):
 
@@ -232,15 +269,21 @@ class Bot(slixmpp.ClientXMPP):
         new_nick = presence["muc"]["nick"]
 
         if presence["muc"]["jid"] == self.boundjid.bare:
-
             # update the bot's nick tracking
             self.plugin["xep_0045"].our_nicks[room] = new_nick
+            # update PresenceManager
+            try:
+                self.presence.joined_rooms[room] = new_nick
+            except KeyError:
+                log.warning("⚠️Room not present in PresenceManager!")
 
             log.info(f"✅ Room Nick changed: '{self.nick}' -> [{new_nick}]")
 
     async def on_muc_message(self, msg):
 
-        if msg["mucnick"] == self.nick:
+        room = msg['from'].bare
+        nick = msg['mucnick']
+        if self.presence.joined_rooms.get(room) == nick:
             return
 
         if msg["type"] == "groupchat":
@@ -264,7 +307,8 @@ class Bot(slixmpp.ClientXMPP):
             )
 
     async def handle_command(self, body, sender_jid, nick, msg, is_room):
-
+        if not body:
+            return
         if not body.startswith(self.prefix):
             return
 
@@ -318,7 +362,7 @@ class Bot(slixmpp.ClientXMPP):
             )
 
 
-if __name__ == "__main__":
+async def main():
     xmpp = Bot("config.json")
 
     xmpp.register_plugin("xep_0030")
@@ -327,14 +371,23 @@ if __name__ == "__main__":
     xmpp.register_plugin("xep_0163")
     xmpp.register_plugin("xep_0054")
 
-    if xmpp.connect():
-        log.info("✅ Connected successfully. Starting event loop...")
-        try:
-            # Run the slixmpp event loop forever
-            asyncio.get_event_loop().run_forever()
-        except KeyboardInterrupt:
-            # Gracefully shut down on CTRL-c
-            log.info("Bot stopped manually.")
-            xmpp.disconnect()
-    else:
-        log.error("❌Unable to connect to XMPP server.")
+    try:
+        # startup bot
+        await xmpp.connect()
+        log.info("[XMPP] ✅ Connected successfully. Starting event loop...")
+        # await disconnected
+        await xmpp.disconnected
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # Gracefully shut down on CTRL-c
+        log.info("[XMPP] Shutdown request")
+    finally:
+        log.info("[XMPP] Disconnecting bot")
+        if xmpp.db:
+            await xmpp.db.close()
+        xmpp.disconnect()
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass

@@ -1,26 +1,28 @@
 """
-Help plugin for the bot command system.
+Help plugin.
 
-Provides an overview of loaded plugins and their commands. Users can
-request general help, plugin help, or command help. Command help must
-be requested using the configured command prefix so it is not confused
-with plugin names.
+Plugin help:
+  ,help <plugin>
+
+Command help:
+  ,help ,command
 """
 
 from command import command, resolve_command
 
+
 PLUGIN_META = {
     "name": "help",
-    "version": "1.0",
+    "version": "1.1",
     "description": "Show help for plugins and commands.",
     "category": "core",
 }
 
 
-def _first_line(text):
-    if not text:
+def _first_line(doc):
+    if not doc:
         return ""
-    return text.strip().split("\n")[0]
+    return doc.strip().split("\n")[0]
 
 
 def _clean_doc(doc, prefix):
@@ -41,11 +43,35 @@ def _commands_for_plugin(bot, plugin_name):
     for cmd, owner in bot.plugins.command_owner.items():
         if owner == plugin_name:
             fn = bot.commands.get(cmd)
-            if fn:
-                doc = _first_line(fn.__doc__)
-                cmds.append((cmd, doc))
+            if not fn:
+                continue
+
+            doc = _first_line(fn.__doc__)
+            cmds.append((cmd, doc))
 
     return sorted(cmds)
+
+
+def _extract_query(msg, prefix):
+    """
+    Extract raw text after ',help' from the message.
+
+    This avoids command token normalization.
+    """
+
+    body = msg["body"].strip()
+
+    if not body.startswith(prefix):
+        return ""
+
+    body = body[len(prefix):].strip()
+
+    if not body.lower().startswith("help"):
+        return ""
+
+    body = body[4:].strip()
+
+    return body
 
 
 @command("help", aliases=["h"])
@@ -59,21 +85,17 @@ async def cmd_help(bot, sender_jid, nick, args, msg, is_room):
       {prefix}help {prefix}<command>
     """
 
-    prefix = bot.config.get("prefix", "!")
+    prefix = bot.config.get("prefix", ",")
     pm = bot.plugins
     lines = []
 
-    # normalize args
-    if args is None:
-        args = []
-    elif isinstance(args, str):
-        args = args.split()
+    query = _extract_query(msg, prefix)
 
     # --------------------------------------------------
     # GENERAL HELP
     # --------------------------------------------------
 
-    if not args:
+    if not query:
         lines.append("📦 Available plugins:")
         lines.append("")
 
@@ -82,56 +104,65 @@ async def cmd_help(bot, sender_jid, nick, args, msg, is_room):
             lines.append(f"• {name} — {doc}")
 
         lines.append("")
-        lines.append(f"Use {prefix}help <plugin> for details.")
-        lines.append(f"Use {prefix}help {prefix}<command> for command help.")
+        lines.append(f"Use {prefix}help <plugin> for plugin help.")
+        lines.append(
+            f"Use {prefix}help {prefix}<command> for command help."
+        )
 
-    else:
-        query = args[0]
+        bot.reply(msg, "\n".join(lines))
+        return
 
-        # --------------------------------------------------
-        # COMMAND HELP (prefix required)
-        # --------------------------------------------------
+    # --------------------------------------------------
+    # COMMAND HELP
+    # --------------------------------------------------
 
-        if query.startswith(prefix):
-            # reconstruct full command string after prefix
-            text = " ".join(args)
-            text = text[len(prefix):].strip().lower()
-            cmd_obj, _ = resolve_command(text)
-            if cmd_obj:
-                fn = cmd_obj.handler
-                doc = _clean_doc(fn.__doc__, prefix)
-                lines.append(f"📖 Command: {prefix}{cmd_obj.name}")
-                lines.append("")
-                if doc:
-                    lines.append(doc)
-            else:
-                lines.append(f"⚠️ Unknown command: {query}")
+    if query.startswith(prefix):
+        cmd_text = query[len(prefix):].strip()
 
-        # --------------------------------------------------
-        # PLUGIN HELP
-        # --------------------------------------------------
+        cmd_obj, _ = resolve_command(cmd_text)
 
-        else:
-            query = query.lower()
+        if not cmd_obj:
+            bot.reply(msg, f"⚠️ Unknown command: {query}")
+            return
 
-            if query in pm.plugins:
-                module = pm.plugins[query]
+        fn = cmd_obj.handler
+        doc = _clean_doc(fn.__doc__, prefix)
 
-                lines.append(f"📦 Plugin: {query}")
-                lines.append("")
+        lines.append(f"📖 Command: {prefix}{cmd_obj.name}")
+        lines.append("")
 
-                module_doc = _clean_doc(module.__doc__, prefix)
-                if module_doc:
-                    lines.append(module_doc)
-                    lines.append("")
+        if doc:
+            lines.append(doc)
 
-                cmds = _commands_for_plugin(bot, query)
+        bot.reply(msg, "\n".join(lines))
+        return
 
-                if cmds:
-                    lines.append("Commands:")
-                    for name, doc in cmds:
-                        lines.append(f"  {prefix}{name} — {doc}")
-            else:
-                lines.append(f"⚠️ Unknown plugin: {query}")
+    # --------------------------------------------------
+    # PLUGIN HELP
+    # --------------------------------------------------
+
+    plugin = query.lower()
+
+    if plugin not in pm.plugins:
+        bot.reply(msg, f"⚠️ Unknown plugin: {query}")
+        return
+
+    module = pm.plugins[plugin]
+
+    lines.append(f"📦 Plugin: {plugin}")
+    lines.append("")
+
+    module_doc = _clean_doc(module.__doc__, prefix)
+
+    if module_doc:
+        lines.append(module_doc)
+        lines.append("")
+
+    cmds = _commands_for_plugin(bot, plugin)
+
+    if cmds:
+        lines.append("Commands:")
+        for name, doc in cmds:
+            lines.append(f"  {prefix}{name} — {doc}")
 
     bot.reply(msg, "\n".join(lines))

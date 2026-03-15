@@ -10,10 +10,8 @@ Usage
 -----
 General help:
   {prefix}help
-
 Plugin help:
   {prefix}help <plugin>
-
 Command help:
   {prefix}help {prefix}<command>
 
@@ -32,8 +30,7 @@ Notes
 
 import logging
 
-from utils.command import command, resolve_command, check_permission
-
+from utils.command import command, resolve_command, check_permission, Role
 from utils.config import config
 
 log = logging.getLogger(__name__)
@@ -149,7 +146,8 @@ def _format_command(cmd_obj, prefix):
 
     desc = _first_line(cmd_obj.handler.__doc__)
 
-    alias_text = f" ({', '.join(aliases)})" if aliases else ""
+    alias_text = f" ({', '.join(prefix + a
+                                for a in aliases)})" if aliases else ""
 
     return f"{prefix}{name}{alias_text} [{role}] - {desc}"
 
@@ -190,6 +188,11 @@ async def cmd_help(bot, sender_jid, nick, args, msg, is_room):
         lines = ["📦 Available plugins", ""]
 
         for name, module in sorted(pm.plugins.items()):
+
+            # hide internal plugins for non-admin users
+            if name.startswith("_") and user_role > Role.ADMIN:
+                continue
+
             doc = _first_line(module.__doc__)
             lines.append(f"• {name} — {doc}")
 
@@ -236,6 +239,11 @@ async def cmd_help(bot, sender_jid, nick, args, msg, is_room):
     # --------------------------------------------------
 
     plugin = query.lower()
+
+    # hide internal plugins for non-admin users
+    if plugin.startswith("_") and user_role > Role.ADMIN:
+        bot.reply(msg, "⚠️ Unknown plugin.")
+        return
 
     if plugin not in pm.plugins:
         bot.reply(msg, "⚠️ Unknown plugin.")

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "envsbot"
-version = "0.0.7"
+version = "0.0.8"
 description = "A modular plugin-driven XMPP bot framework"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -46,7 +46,8 @@ classifiers = [
 dev = [
     "pytest>=8",
     "pytest-cov>=5",
-    "pytest-asyncio>=0.23"
+    "pytest-asyncio>=0.23",
+    "hypothesis>=6"
 ]
 
 [tool.setuptools]

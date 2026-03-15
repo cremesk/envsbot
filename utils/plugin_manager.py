@@ -3,60 +3,45 @@ plugin_manager.py
 
 Runtime plugin management for the bot.
 
-This module implements the PluginManager class, responsible for
-discovering, loading, unloading, and reloading bot plugins during
-runtime. Plugins are Python modules located inside the configured
-plugin package (by default "plugins").
+This module implements the PluginManager class which is responsible
+for discovering, loading, unloading, and reloading bot plugins
+during runtime.
 
-Responsibilities
-----------------
-• Discover available plugin modules in the plugin package.
-• Load plugins and resolve their dependencies.
-• Register commands exposed by plugins.
-• Unload plugins and remove their commands.
-• Reload plugins without restarting the bot.
-• Provide metadata about loaded plugins.
+Design
+------
+Plugins are normal Python modules located in the configured plugin
+package (default: "plugins").
 
-Plugin Structure
-----------------
-Each plugin is expected to be a Python module that may define:
+A plugin may define:
 
 PLUGIN_META
-    Optional dictionary containing metadata such as:
-    - name
-    - version
-    - description
-    - category
-    - requires (list of plugin dependencies)
+    Optional metadata dictionary.
 
 setup(bot)
-    Optional function called after a plugin is loaded.
+    Optional setup hook executed after the plugin is loaded.
 
 teardown(bot)
-    Optional function called before a plugin is unloaded.
+    Optional cleanup hook executed before the plugin is unloaded.
 
-Command functions
-    Functions decorated with the bot's command decorator.
-    The plugin manager registers these automatically.
-
-Notes
------
-• Dependencies declared in PLUGIN_META["requires"] are loaded
-  automatically before the plugin itself.
-
-• Commands registered by a plugin are tracked so they can be
-  removed when the plugin is unloaded.
-
-• Reloading a plugin performs an unload followed by a load.
-
-• This manager only tracks plugins loaded during runtime and does
-  not enforce isolation between plugin modules.
-
-See Also
+Commands
 --------
-plugins.py
-    Administrative plugin providing commands such as
-    ",plugin list", ",plugin load", and ",plugin reload".
+Commands are discovered by scanning the module for functions
+decorated with the command decorator. These functions contain
+a `_command_names` attribute.
+
+Handlers are registered into:
+
+    bot.commands[name] = handler
+
+Ownership information is stored in:
+
+    self.command_owner[name] = plugin_name
+
+Internal Plugins
+----------------
+Plugins whose filename begins with "_" are treated as internal.
+Commands belonging to such plugins automatically require at
+least ADMIN privileges.
 """
 
 import importlib
@@ -65,11 +50,15 @@ import sys
 import inspect
 import logging
 
+from utils.command import COMMAND_INDEX, Role
+
 log = logging.getLogger(__name__)
 
 
 class PluginManager:
-    """Runtime plugin manager."""
+    """
+    Runtime plugin manager responsible for plugin lifecycle.
+    """
 
     def __init__(self, bot, package="plugins"):
         self.bot = bot
@@ -78,7 +67,7 @@ class PluginManager:
         # plugin_name -> module
         self.plugins = {}
 
-        # command -> plugin_name
+        # command_name -> plugin_name
         self.command_owner = {}
 
         # plugin_name -> metadata
@@ -89,7 +78,14 @@ class PluginManager:
     # --------------------------------------------------
 
     def discover(self):
-        """Return all available plugin names."""
+        """
+        Discover available plugin modules.
+
+        Returns
+        -------
+        list[str]
+            Sorted list of plugin module names.
+        """
 
         package = importlib.import_module(self.package)
 
@@ -105,12 +101,16 @@ class PluginManager:
     # --------------------------------------------------
 
     def list(self):
-        """Return loaded plugin names."""
+        """
+        Return names of currently loaded plugins.
+        """
 
         return sorted(self.plugins.keys())
 
     def available(self):
-        """Return available but unloaded plugins."""
+        """
+        Return discovered plugins that are not currently loaded.
+        """
 
         return sorted(set(self.discover()) - set(self.plugins))
 
@@ -119,7 +119,16 @@ class PluginManager:
     # --------------------------------------------------
 
     def load(self, name):
-        """Load a plugin."""
+        """
+        Load a plugin module.
+
+        Steps
+        -----
+        1. Import the module
+        2. Load dependencies declared in PLUGIN_META
+        3. Register commands
+        4. Run setup() hook if present
+        """
 
         if name in self.plugins:
             log.warning("[PLUGIN] ⚠️ Plugin already loaded: %s", name)
@@ -133,7 +142,10 @@ class PluginManager:
 
         meta = getattr(module, "PLUGIN_META", {})
 
-        # dependency resolution
+        # --------------------------------------------------
+        # DEPENDENCIES
+        # --------------------------------------------------
+
         for dep in meta.get("requires", []):
 
             if dep not in self.plugins:
@@ -146,7 +158,15 @@ class PluginManager:
 
                 self.load(dep)
 
+        # --------------------------------------------------
+        # COMMAND REGISTRATION
+        # --------------------------------------------------
+
         self._register_commands(name, module)
+
+        # --------------------------------------------------
+        # SETUP HOOK
+        # --------------------------------------------------
 
         if hasattr(module, "setup"):
             module.setup(self.bot)
@@ -161,6 +181,11 @@ class PluginManager:
     # --------------------------------------------------
 
     def _register_commands(self, plugin_name, module):
+        """
+        Register commands exposed by a plugin module.
+        """
+
+        is_internal = plugin_name.startswith("_")
 
         for _, obj in inspect.getmembers(module):
 
@@ -171,21 +196,41 @@ class PluginManager:
                     if name in self.bot.commands:
 
                         log.warning(
-                            "[PLUGIN] ⚠️ Command conflict: %s "
-                            "(plugin: %s)",
+                            "[PLUGIN] ⚠️ Command conflict: %s (plugin: %s)",
                             name,
                             plugin_name,
                         )
 
+                    # register handler
                     self.bot.commands[name] = obj
                     self.command_owner[name] = plugin_name
+
+                    # --------------------------------------------------
+                    # INTERNAL PLUGIN PERMISSION POLICY
+                    # --------------------------------------------------
+
+                    if is_internal:
+
+                        tokens = tuple(name.lower().split())
+                        cmd = COMMAND_INDEX.get(tokens)
+
+                        if cmd and cmd.role > Role.ADMIN:
+
+                            log.debug(
+                                "[PLUGIN] 🔒 Elevating role for internal command '%s' to ADMIN",
+                                name,
+                            )
+
+                            cmd.role = Role.ADMIN
 
     # --------------------------------------------------
     # UNLOAD
     # --------------------------------------------------
 
     def unload(self, name):
-        """Unload a plugin."""
+        """
+        Unload a plugin and remove its commands.
+        """
 
         if name not in self.plugins:
 
@@ -199,7 +244,7 @@ class PluginManager:
         if hasattr(module, "teardown"):
             module.teardown(self.bot)
 
-        # remove commands
+        # remove commands belonging to plugin
         remove = []
 
         for cmd, owner in self.command_owner.items():
@@ -208,8 +253,8 @@ class PluginManager:
 
         for cmd in remove:
 
-            del self.bot.commands[cmd]
-            del self.command_owner[cmd]
+            self.bot.commands.pop(cmd, None)
+            self.command_owner.pop(cmd, None)
 
         # remove module
         module_path = f"{self.package}.{name}"
@@ -218,7 +263,7 @@ class PluginManager:
             del sys.modules[module_path]
 
         del self.plugins[name]
-        del self.meta[name]
+        self.meta.pop(name, None)
 
         log.info("[PLUGIN] 📤 Plugin unloaded: %s", name)
 
@@ -227,12 +272,13 @@ class PluginManager:
     # --------------------------------------------------
 
     def reload(self, name):
-        """Reload a plugin."""
+        """
+        Reload a plugin.
+        """
 
         log.info("[PLUGIN] 🔄 Reloading plugin: %s", name)
 
         self.unload(name)
-
         self.load(name)
 
     # --------------------------------------------------
@@ -240,18 +286,21 @@ class PluginManager:
     # --------------------------------------------------
 
     def load_all(self):
-        """Load all discovered plugins."""
+        """
+        Load all discovered plugins.
+        """
 
         for plugin in self.discover():
 
-            if plugin not in self.plugins:
+            if plugin in self.plugins:
+                continue
 
-                try:
-                    self.load(plugin)
+            try:
+                self.load(plugin)
 
-                except Exception:
+            except Exception:
 
-                    log.exception(
-                        "[PLUGIN] ❌ Failed to load plugin: %s",
-                        plugin,
-                    )
+                log.exception(
+                    "[PLUGIN] ❌ Failed to load plugin: %s",
+                    plugin,
+                )

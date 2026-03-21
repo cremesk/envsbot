@@ -1,113 +1,332 @@
-"""
-User database management.
-
-This module implements persistent user handling for the bot.
-
-It manages three database tables:
-
-users
-    Core identity information. Contains the JID and frequently updated fields.
-users_profile
-    Stores rarely changing profile information as JSON.
-users_runtime
-    Stores dynamic runtime/plugin data as JSON.
-
-JSON fields support nested key/value access using dotted paths.
-
-Features
---------
-- automatic user creation
-- nested JSON access
-- runtime/profile caching
-- lazy database writes
-- plugin-safe runtime namespaces
-"""
-
 import json
+import logging
+import asyncio
+from datetime import datetime, timezone
+
+GLOBAL_JID = "__GLOBAL__"
+
+log = logging.getLogger(__name__)
+
+
+class ProfileStore:
+    def __init__(self, user_manager):
+        self.um = user_manager
+
+    async def _load_from_db(self, jid: str):
+        cursor = await self.um.db.execute(
+            "SELECT data, last_updated FROM users_profile WHERE jid = ?",
+            (jid,),
+        )
+        row = await cursor.fetchone()
+
+        if not row or not row[0]:
+            self.um._profile_meta[jid] = None
+            return {}
+
+        raw_data, last_updated = row[0]
+
+        try:
+            return json.loads(raw_data)
+        except Exception:
+            data = {}
+
+        # store timestamp in meta
+        self.um._profile_meta[jid] = last_updated
+
+        return data
+
+    async def get(self, jid: str, key: str = None):
+        """
+        Get profile data (cached).
+
+        - Loads from DB on first access
+        - Returns full profile or specific key
+        """
+        # Ensure cache exists
+        if jid not in self.um._profile_cache:
+            data = await self._load_from_db(jid)
+            self.um._profile_cache[jid] = data
+
+        profile = self.um._profile_cache[jid]
+
+        if key is None:
+            return profile
+
+        return profile.get(key)
+
+    async def set(self, jid: str, key: str, value):
+        """
+        Set profile value (cached, no immediate DB write).
+        """
+
+        # get update time
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Ensure cache exists
+        if jid not in self.um._profile_cache:
+            data = await self._load_from_db(jid)
+            self.um._profile_cache[jid] = data
+
+        self.um._profile_cache[jid][key] = value
+        self.um_profile_meta[jid] = now
+        self.um._dirty_profiles.add(jid)
+
+    async def delete(self, jid: str, key: str):
+        """
+        Delete a key from profile (cached).
+        """
+        if jid not in self.um._profile_cache:
+            data = await self._load_from_db(jid)
+            self.um._profile_cache[jid] = data
+
+        profile = self.um._profile_cache[jid]
+
+        if key in profile:
+            del profile[key]
+            self.um._dirty_profiles.add(jid)
+
+    async def clear(self, jid: str):
+        """
+        Clear entire profile (cached).
+        """
+        self.um._profile_cache[jid] = {}
+        self.um._dirty_profiles.add(jid)
 
 
 class PluginRuntimeStore:
     """
-    Namespaced runtime storage for a plugin.
+    Cache-backed runtime storage for plugin-specific user data.
 
-    Ensures plugins only access their own namespace in users_runtime.
+    This store provides a per-plugin interface to the shared `users_runtime`
+    table, which stores a single JSON blob per user (jid). The structure of
+    that JSON is expected to be:
+
+        {
+            "plugins": {
+                "<plugin_name>": { ... plugin-specific data ... }
+            }
+        }
+
+    Key characteristics:
+    - Read-through cache: data is loaded from the database on first access.
+    - Write-behind cache: all mutations are applied in-memory and marked dirty.
+    - No immediate database writes: persistence happens later via UserManager.flush_*.
+    - Per-plugin isolation: each plugin only accesses its own namespace inside
+      the shared JSON document.
+
+    Important invariants:
+    - `_runtime_cache[jid]` always contains the full JSON blob for that user.
+    - `_dirty_runtime` tracks jids whose runtime data must be flushed.
+    - The UserManager is responsible for writing cached data to the database,
+      typically in the order: users → runtime → profile.
+
+    This design ensures:
+    - High performance (fewer DB writes)
+    - Consistent state across related tables
+    - Compatibility with existing JSON-based SQL queries
     """
 
-    def __init__(self, user_manager, plugin_name):
+    def __init__(self, user_manager, plugin_name: str):
         self.um = user_manager
-        self.plugin = plugin_name
+        self.plugin_name = plugin_name
 
-    async def get(self, jid, key=None):
-        """Return a runtime value for this plugin."""
-        base = f"plugins.{self.plugin}"
+    # ------------------------------------------------------------------
+    # INTERNAL
+    # ------------------------------------------------------------------
 
-        if key:
-            path = f"{base}.{key}"
-        else:
-            path = base
+    async def _load_from_db(self, jid: str) -> dict:
+        """
+        Load full runtime JSON for a user from the database.
+        Ensures the returned structure always contains a "plugins" dict.
+        """
+        cursor = await self.um.db.execute(
+            "SELECT data, last_updated FROM users_runtime WHERE jid = ?",
+            (jid,),
+        )
+        row = await cursor.fetchone()
 
-        runtime = await self.um.get_runtime(jid)
-        return await self.um.get_value(runtime, path)
+        if not row or not row[0]:
+            self.um._runtime_meta[jid] = None
+            return {"plugins": {}}
 
-    async def set(self, jid, key, value):
-        """Set a runtime value for this plugin."""
-        path = f"plugins.{self.plugin}.{key}"
-        await self.um.set_runtime_value(jid, path, value)
+        raw_data, last_updated = row[0]
 
-    async def increment(self, jid, key, amount=1):
-        """Increment a numeric runtime value."""
-        current = self.get(jid, key)
+        try:
+            data = json.loads(raw_data)
+        except Exception:
+            log.exception("[RUNTIME] Failed to decode JSON for %s", jid)
+            return {"plugins": {}}
 
-        if current is None:
-            current = 0
+        if "plugins" not in data:
+            data["plugins"] = {}
 
-        await self.set(jid, key, current + amount)
+        # store timestamp in meta
+        self.um._runtime_meta[jid] = last_updated
 
-    async def delete(self, jid, key):
-        """Delete a key from the plugin namespace."""
-        data = await self.um.get_runtime(jid)
+        return data
 
-        keys = f"plugins.{self.plugin}.{key}".split(".")
-        target = data
+    def _ensure_cache(self, jid: str):
+        """
+        Ensure runtime cache structure exists for the given jid and plugin.
+        """
+        if jid not in self.um._runtime_cache:
+            self.um._runtime_cache[jid] = {"plugins": {}}
 
-        for k in keys[:-1]:
-            target = target.get(k, {})
+        if "plugins" not in self.um._runtime_cache[jid]:
+            self.um._runtime_cache[jid]["plugins"] = {}
 
-        target.pop(keys[-1], None)
+        if self.plugin_name not in self.um._runtime_cache[jid]["plugins"]:
+            self.um._runtime_cache[jid]["plugins"][self.plugin_name] = {}
 
-        await self.um._dirty_runtime.add(jid)
+    # ------------------------------------------------------------------
+    # PUBLIC API
+    # ------------------------------------------------------------------
+    async def get_global(self, key, default=None):
+        """
+        Get plugin-global value (not tied to a user).
+        """
+        data = await self.get(GLOBAL_JID, key)
+        return default if data is None else data
+
+    async def set_global(self, key, value):
+        """
+        Set plugin-global value.
+        """
+        await self.set(GLOBAL_JID, key, value)
+
+    async def get(self, jid: str, key: str = None):
+        """
+        Retrieve runtime data for this plugin.
+
+        If the user is not yet cached, data is loaded from the database.
+
+        Args:
+            jid: User JID
+            key: Optional key within the plugin's data
+
+        Returns:
+            - Full plugin data dict if key is None
+            - Value for the given key otherwise (or None if missing)
+        """
+        if jid not in self.um._runtime_cache:
+            self.um._runtime_cache[jid] = await self._load_from_db(jid)
+
+        data = self.um._runtime_cache[jid]
+
+        if "plugins" not in data:
+            data["plugins"] = {}
+
+        plugin_data = data["plugins"].setdefault(self.plugin_name, {})
+
+        if key is None:
+            return plugin_data
+
+        return plugin_data.get(key)
+
+    async def set(self, jid: str, key: str, value):
+        """
+        Set a runtime value for this plugin (cached only).
+
+        Marks the user as dirty so the change will be persisted on flush.
+        """
+
+        # get update time
+        now = datetime.now(timezone.utc).isoformat()
+
+        if jid not in self.um._runtime_cache:
+            self.um._runtime_cache[jid] = await self._load_from_db(jid)
+
+        data = self.um._runtime_cache[jid]
+
+        if "plugins" not in data:
+            data["plugins"] = {}
+
+        plugin_data = data["plugins"].setdefault(self.plugin_name, {})
+
+        plugin_data[key] = value
+
+        self.um._runtime_meta[jid] = now
+        self.um._dirty_runtime.add(jid)
+
+    async def delete(self, jid: str, key: str):
+        """
+        Delete a key from this plugin's runtime data (cached).
+        """
+        if jid not in self.um._runtime_cache:
+            self.um._runtime_cache[jid] = await self._load_from_db(jid)
+
+        data = self.um._runtime_cache[jid]
+
+        plugin_data = data.get("plugins", {}).get(self.plugin_name, {})
+
+        if key in plugin_data:
+            del plugin_data[key]
+            self.um._dirty_runtime.add(jid)
+
+    async def clear(self, jid: str):
+        """
+        Remove all runtime data for this plugin (cached).
+        """
+        if jid not in self.um._runtime_cache:
+            self.um._runtime_cache[jid] = await self._load_from_db(jid)
+
+        data = self.um._runtime_cache[jid]
+
+        if "plugins" not in data:
+            data["plugins"] = {}
+
+        data["plugins"][self.plugin_name] = {}
+
+        self.um._dirty_runtime.add(jid)
 
 
 class UserManager:
     """
-    Manages user records, profile data, and runtime data.
+    Manages users + in-memory cache.
 
-    Provides caching and lazy write-back to reduce database load.
+    Responsibilities:
+    - Cache users, profile, runtime
+    - Provide helper functions (get_value, set_value)
+    - Manage users table
+
+    Does NOT:
+    - Write JSON blobs (handled by stores)
+    - Parse JSON (handled by SQLite JSON1)
     """
 
     def __init__(self, db):
         self.db = db
+        self._nick_index = {}
+        self._nick_index_lock = asyncio.Lock()
 
-        self._runtime_cache = {}
+        self._users_cache = {}
         self._profile_cache = {}
+        self._runtime_cache = {}
 
-        self._dirty_runtime = set()
-        self._dirty_profile = set()
+        self._profile_meta = {}
+        self._runtime_meta = {}
+
+        self._dirty_users = set()
+        self._dirty_profiles = set()   # optional (can be removed later)
+        self._dirty_runtime = set()   # optional (can be removed later)
 
     # ------------------------------------------------------------------
-    # Database initialization
+    # Initialization
     # ------------------------------------------------------------------
+
+    async def ensure_global_exists(self):
+        if await self.get(GLOBAL_JID) is None:
+            await self.create(GLOBAL_JID, "__global__")
 
     async def init(self):
-        """Create required database tables if they do not exist."""
-
         await self.db.execute("""
         CREATE TABLE IF NOT EXISTS users (
             jid TEXT PRIMARY KEY,
             nickname TEXT,
-            role TEXT DEFAULT 'user',
+            role INTEGER DEFAULT 80,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_seen TIMESTAMP
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            registered INTEGER DEFAULT FALSE
         )
         """)
 
@@ -115,8 +334,11 @@ class UserManager:
         CREATE TABLE IF NOT EXISTS users_profile (
             jid TEXT PRIMARY KEY,
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            data TEXT NOT NULL,
-            FOREIGN KEY (jid) REFERENCES users(jid)
+            data TEXT DEFAULT '{}' NOT NULL,
+            FOREIGN KEY (jid)
+                REFERENCES users(jid)
+                ON DELETE CASCADE
+                ON UPDATE CASCADE
         )
         """)
 
@@ -124,186 +346,208 @@ class UserManager:
         CREATE TABLE IF NOT EXISTS users_runtime (
             jid TEXT PRIMARY KEY,
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            data TEXT NOT NULL,
-            FOREIGN KEY (jid) REFERENCES users(jid)
+            data TEXT DEFAULT '{}' NOT NULL,
+            FOREIGN KEY (jid)
+                REFERENCES users(jid)
+                ON DELETE CASCADE
+                ON UPDATE CASCADE
         )
         """)
 
+        # --- Make sure JID "__GLOBAL_" exists ---
+        await self.ensure_global_exists()
+
+        # --- load persisted _nick_index ---
+        store = self.plugin("users")
+        index = await store.get_global("_nick_index")
+
+        if isinstance(index, dict):
+            self._nick_index = index
+
     # ------------------------------------------------------------------
-    # User handling
+    # Users (DB + cache)
     # ------------------------------------------------------------------
 
     async def create(self, jid, nickname=None):
-        """Create a user if it does not exist."""
-        await self.db.execute(
-            """
-            INSERT OR IGNORE INTO users (jid, nickname)
-            VALUES (?, ?)
-            """,
-            (jid, nickname)
-        )
+        now = datetime.now(timezone.utc).isoformat()
+        if jid not in self._users_cache:
+            self._users_cache[jid] = {
+                "jid": jid,
+                "nickname": nickname,
+                "role": 80,
+                "created_at": now,
+                "last_seen": now,
+                "registered": True,
+            }
+            self._dirty_users.add(jid)
 
     async def get(self, jid):
-        """Return a user row."""
-        return await self.db.fetch_one(
+        if jid in self._users_cache:
+            return self._users_cache[jid]
+
+        cursor = await self.db.execute(
             "SELECT * FROM users WHERE jid=?",
             (jid,)
         )
+        row = await cursor.fetchone()
 
-    async def get_role(self, jid: str):
-        """
-        Return the role of a user or None if the user does not exist.
-        """
+        if not row:
+            return None
 
-        query = """
-        SELECT role
-        FROM users
-        WHERE jid = ?
-        """
+        user = dict(row)
+        self._users_cache[jid] = user
+        return user
 
-        async with self.db.execute(query, (jid,)) as cursor:
-            row = await cursor.fetchone()
-
-        if row:
-            return row["role"]
-        return None
+    async def set(self, jid, key, value):
+        user = await self.get(jid)
+        if not user:
+            return None
+        user[key] = value
+        self._dirty_users.add(jid)
+        return user
 
     async def update_last_seen(self, jid):
-        """Update the last_seen timestamp."""
+        now = datetime.now(timezone.utc).isoformat()
+        await self.set(jid, "last_seen", now)
+
+    async def get_all_users(self):
+        # --- 1. load all JIDs from DB ---
+        rows = await self.db.execute_fetchall(
+            "SELECT * FROM users"
+        )
+
+        users = []
+
+        # --- 2. populate cache from DB (without overwriting dirty cache) ---
+        for row in rows:
+            user = dict(row)
+            jid = user["jid"]
+
+            # only populate if not already cached
+            if jid not in self._users_cache:
+                self._users_cache[jid] = user
+
+            users.append(self._users_cache[jid])
+
+        # --- 3. include cache-only users (not yet flushed to DB) ---
+        for jid, user in self._users_cache.items():
+            if jid not in {u["jid"] for u in users}:
+                users.append(user)
+
+        # --- 4. return sorted result (by jid for determinism) ---
+        return sorted(users, key=lambda u: u["jid"])
+
+    async def delete(self, jid):
+        # --- delete from database ---
         await self.db.execute(
-            """
-            UPDATE users
-            SET last_seen=CURRENT_TIMESTAMP
-            WHERE jid=?
-            """,
+            "DELETE FROM users WHERE jid = ?",
             (jid,)
         )
 
-    async def delete_user(self, jid):
-        """
-        Completely remove a user from all tables and caches.
+        await self.db.execute(
+            "DELETE FROM users_profile WHERE jid = ?",
+            (jid,)
+        )
 
-        This deletes the user's identity, profile data, and runtime data
-        from the database and clears any cached entries.
-        """
+        await self.db.execute(
+            "DELETE FROM users_runtime WHERE jid = ?",
+            (jid,)
+        )
 
-        # remove from database tables
-        await self.db.execute("DELETE FROM users_runtime WHERE jid=?", (jid,))
-        await self.db.execute("DELETE FROM users_profile WHERE jid=?", (jid,))
-        await self.db.execute("DELETE FROM users WHERE jid=?", (jid,))
-
-        # remove from caches
-        self._runtime_cache.pop(jid, None)
+        # --- remove from caches ---
+        self._users_cache.pop(jid, None)
         self._profile_cache.pop(jid, None)
+        self._runtime_cache.pop(jid, None)
 
-        # remove from dirty tracking
+        # --- clean dirty flags ---
+        self._dirty_users.discard(jid)
+        self._dirty_profiles.discard(jid)
         self._dirty_runtime.discard(jid)
-        self._dirty_profile.discard(jid)
 
     # ------------------------------------------------------------------
-    # JSON loading helpers
+    # JSON access (core primitive)
     # ------------------------------------------------------------------
 
-    async def _load_json(self, table, jid, cache):
-        """Load JSON data from the database or cache."""
-        if jid in cache:
-            return cache[jid]
+    async def get_raw_json(self, table, jid, path="$"):
+        """
+        Fetch JSON (or sub-path) directly via SQLite JSON1.
 
-        row = await self.db.fetch_one(
-            f"SELECT data FROM {table} WHERE jid=?",
-            (jid,)
-        )
-
-        if row:
-            data = json.loads(row["data"])
-        else:
-            data = {}
-
-        cache[jid] = data
-        return data
-
-    async def _write_json(self, table, jid, data):
-        """Write JSON data to the database."""
-        json_data = json.dumps(data)
-
-        await self.db.execute(
+        Examples:
+            "$"                    → full object
+            "$.bio.age"           → nested value
+            "$.plugins.test"      → plugin namespace
+        """
+        cursor = await self.db.execute(
             f"""
-            INSERT INTO {table} (jid, data, last_updated)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(jid)
-            DO UPDATE SET
-                data=excluded.data,
-                last_updated=CURRENT_TIMESTAMP
+            SELECT json_extract(data, ?)
+            FROM {table}
+            WHERE jid = ?
             """,
-            (jid, json_data)
+            (path, jid)
         )
+        row = await cursor.fetchone()
+
+        if not row:
+            return None
+
+        return row[0]
 
     # ------------------------------------------------------------------
-    # Profile access
+    # Profile (read + cache)
     # ------------------------------------------------------------------
 
     async def get_profile(self, jid):
-        """Return the user's profile JSON."""
-        return await self._load_json(
-            "users_profile",
-            jid,
-            self._profile_cache
-        )
+        if jid in self._profile_cache:
+            return self._profile_cache[jid]
 
-    async def set_profile_value(self, jid, key_path, value):
-        """Set a nested profile value."""
-        await self.set_value(
-            self._profile_cache,
-            self._dirty_profile,
-            jid,
-            key_path,
-            value
-        )
+        raw = await self.get_raw_json("users_profile", jid, "$")
+
+        if isinstance(raw, str):
+            import json
+            data = json.loads(raw)
+        else:
+            data = raw or {}
+
+        self._profile_cache[jid] = data
+        return data
 
     # ------------------------------------------------------------------
-    # Runtime access
+    # Runtime (read + cache)
     # ------------------------------------------------------------------
 
     async def get_runtime(self, jid):
-        """Return the user's runtime JSON."""
-        return await self._load_json(
-            "users_runtime",
-            jid,
-            self._runtime_cache
-        )
+        if jid in self._runtime_cache:
+            return self._runtime_cache[jid]
 
-    async def set_runtime_value(self, jid, key_path, value):
-        """Set a nested runtime value."""
-        await self.set_value(
-            self._runtime_cache,
-            self._dirty_runtime,
-            jid,
-            key_path,
-            value
-        )
+        raw = await self.get_raw_json("users_runtime", jid, "$")
+
+        if isinstance(raw, str):
+            import json
+            data = json.loads(raw)
+        else:
+            data = raw or {}
+
+        self._runtime_cache[jid] = data
+        return data
 
     # ------------------------------------------------------------------
-    # Nested JSON helpers
+    # Helpers
     # ------------------------------------------------------------------
 
     async def get_value(self, data, key_path):
-        """Return a nested value using dotted key paths."""
         keys = key_path.split(".")
         value = data
 
         for k in keys:
             if not isinstance(value, dict):
                 return None
-
             value = value.get(k)
-
             if value is None:
                 return None
 
         return value
 
-    async def set_value(self, cache, dirty_set, jid, key_path, value):
-        """Set a nested value inside cached JSON."""
+    async def set_value(self, cache, dirty, jid, key_path, value):
         data = cache.setdefault(jid, {})
 
         keys = key_path.split(".")
@@ -313,40 +557,132 @@ class UserManager:
             target = target.setdefault(k, {})
 
         target[keys[-1]] = value
-
-        dirty_set.add(jid)
+        dirty.add(jid)
 
     # ------------------------------------------------------------------
-    # Cache flushing
+    # FLUSH LOGIC
     # ------------------------------------------------------------------
 
-    async def flush_runtime(self):
-        """Write dirty runtime data to the database."""
-        for jid in self._dirty_runtime:
-            data = self._runtime_cache[jid]
-            await self._write_json("users_runtime", jid, data)
+    # --- Flush users ---
+    async def flush_users(self):
+        for jid in self._dirty_users:
+            user = self._users_cache[jid]
 
-        self._dirty_runtime.clear()
+            await self.db.execute(
+                """
+                INSERT INTO users (jid, nickname, role, last_seen, registered)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(jid)
+                DO UPDATE SET
+                    nickname=excluded.nickname,
+                    role=excluded.role,
+                    last_seen=excluded.last_seen,
+                    registered=excluded.registered
+                """,
+                (
+                    user["jid"],
+                    user.get("nickname"),
+                    user.get("role", 80),
+                    user.get("last_seen"),
+                    user.get("registered", 0),
+                )
+            )
 
-    async def flush_profile(self):
-        """Write dirty profile data to the database."""
-        for jid in self._dirty_profile:
-            data = self._profile_cache[jid]
-            await self._write_json("users_profile", jid, data)
+    async def _write_profile(self, jid, data):
+        timestamp = self._profile_meta.get(jid)
+        await self.db.execute(
+            """
+            INSERT INTO users_profile (jid, last_updated, data)
+            VALUES (?, ?, ?)
+            ON CONFLICT(jid) DO UPDATE SET
+                last_updated = excluded.last_updated,
+                data = excluded.data
+            """,
+            (jid, timestamp, json.dumps(data)),
+        )
 
-        self._dirty_profile.clear()
+    async def _write_runtime(self, jid: str, data: dict):
+        """
+        Persist full runtime JSON blob for a user.
+
+        Uses UPSERT semantics to either insert or update the row.
+        """
+        timestamp = self._runtime_meta.get(jid)
+        await self.db.execute(
+            """
+            INSERT INTO users_runtime (jid, last_updated, data)
+            VALUES (?, ?, ?)
+            ON CONFLICT(jid)
+            DO UPDATE SET
+                last_updated = excluded.last_updated,
+                data = excluded.data
+            """,
+            (jid, timestamp, json.dumps(data)),
+        )
 
     async def flush_all(self):
-        """Flush all cached data to the database."""
-        await self.flush_runtime()
-        await self.flush_profile()
+        """
+        Flush all cached data atomically in a single transaction.
+        """
+        # --- persistent nick index ---
+        index = getattr(self, "_nick_index", None)
+        if index is not None:
+            store = self.plugin("users")
+            await store.set_global("_nick_index", index)
+
+        if not (self._dirty_users or self._dirty_runtime
+                or self._dirty_profiles):
+            return
+
+        # Begin Transaction
+        await self.db.execute("BEGIN")
+        try:
+
+            # ----------------------------------------------------------
+            # 1. USERS
+            # ----------------------------------------------------------
+            if self._dirty_users:
+                await self.flush_users()
+
+            # ----------------------------------------------------------
+            # 2. RUNTIME
+            # ----------------------------------------------------------
+            for jid in self._dirty_runtime:
+                data = self._runtime_cache.get(jid) or {"plugins": {}}
+                await self._write_runtime(jid, data)
+
+            # ----------------------------------------------------------
+            # 3. PROFILE
+            # ----------------------------------------------------------
+            for jid in self._dirty_profiles:
+                data = self._profile_cache.get(jid, {})
+                await self._write_profile(jid, data)
+
+        # End Transaction
+            await self.db.commit()
+            log.info("[DB] ✅ UserManager.flush_all() SUCCESSFUL!")
+        except Exception:
+            await self.db.rollback()
+            log.exception("[DB] FLUSH ALL FAILED!")
+            raise
+
+        # ----------------------------------------------------------
+        # CLEAR DIRTY FLAGS AFTER SUCCESS
+        # ----------------------------------------------------------
+        self._dirty_users.clear()
+        self._dirty_runtime.clear()
+        self._dirty_profiles.clear()
 
     # ------------------------------------------------------------------
-    # Plugin storage API
+    # Plugin API
     # ------------------------------------------------------------------
 
-    def plugin_store(self, plugin_name):
-        """
-        Return a namespaced runtime storage object for a plugin.
-        """
+    def plugin(self, plugin_name: str):
         return PluginRuntimeStore(self, plugin_name)
+
+    # ------------------------------------------------------------------
+    # Profile API
+    # ------------------------------------------------------------------
+
+    def profile(self):
+        return ProfileStore(self)

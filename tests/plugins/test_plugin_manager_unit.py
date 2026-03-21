@@ -49,9 +49,6 @@ from utils.plugin_manager import PluginManager
 class DummyBot:
     """Minimal bot stub used for PluginManager tests."""
 
-    def __init__(self):
-        self.commands = {}
-
 
 def make_plugin(name, requires=None, setup=None, commands=None):
     """
@@ -146,5 +143,3 @@ def test_setup_failure_does_not_register_commands():
 
     with pytest.raises(RuntimeError):
         pm.load("bad")
-
-    assert "test" not in bot.commands

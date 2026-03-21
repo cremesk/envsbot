@@ -6,8 +6,13 @@ import time
 
 from utils.plugin_manager import PluginManager
 from utils.config import config, setup_logging
-from utils.command import resolve_command, check_permission, Role
-from database import DatabaseManager
+from utils.command import (
+    resolve_command,
+    check_permission,
+    Role,
+    role_from_int
+)
+from database.manager import DatabaseManager
 
 
 # === set up logging ===
@@ -72,20 +77,22 @@ class Bot(slixmpp.ClientXMPP):
         self.rooms = []
         self.nick = config.get("nick", "bot")
         self.admins = []
-        owner = config.get("owner")
-        if owner:
-            self.admins.append(slixmpp.JID(owner).bare)
         self.prefix = config.get("prefix", ",")
 
         # Presence Manager
         self.presence = PresenceManager(self)
+
+        self.register_plugin("xep_0030")
+        self.register_plugin("xep_0045")
+        self.register_plugin("xep_0084")
+        self.register_plugin("xep_0163")
+        self.register_plugin("xep_0054")
 
         # Database Manager
         self.db = DatabaseManager(config.get("db", "bot.db"))
 
         # Plugin Manager
         self.plugins = PluginManager(self)
-        self.plugins.load_all()
 
         self.add_event_handler("session_start", self.on_start)
         self.add_event_handler("groupchat_message", self.on_muc_message)
@@ -105,13 +112,13 @@ class Bot(slixmpp.ClientXMPP):
         if jid == owner_jid:
             return Role.OWNER
 
-        role_name = await self.db.users.get_role(jid)
+        row = await self.db.users.get(jid)
 
-        if not role_name:
+        if row is None:
             return Role.NONE
 
         try:
-            return Role[role_name.upper()]
+            return role_from_int(row['role'])
         except KeyError:
             return Role.NONE
 
@@ -156,7 +163,7 @@ class Bot(slixmpp.ClientXMPP):
         if isinstance(text, list):
             text = "\n".join(text)
 
-        sender = str(msg["from"])
+        sender = str(msg["from"].bare)
 
         # basic rate limit storage
         if not hasattr(self, "_reply_rate"):
@@ -194,7 +201,7 @@ class Bot(slixmpp.ClientXMPP):
                     try:
                         message["thread"] = thread_id
                     except Exception:
-                        pass
+                        log.debug("[BOT] ❌Setting Thread failed: {e}")
 
             message.send()
 
@@ -231,17 +238,14 @@ class Bot(slixmpp.ClientXMPP):
         await self.get_roster()
         # Connect to DB
         await self.db.connect()
-        # Autojoin Rooms from DB
-        await self.autojoin_rooms()
+        # load plugins
+        self.plugins.load_all()
         # send presence again
         self.presence.broadcast()
         # set automatic mutual subscriptions
         self.roster.auto_subscribe = True
 
         log.info("[BOT] ✅ Bot started, all rooms joined")
-
-    def is_admin(self, jid):
-        return slixmpp.JID(jid).bare in self.admins
 
     def on_muc_leave(self, presence):
         """
@@ -275,7 +279,7 @@ class Bot(slixmpp.ClientXMPP):
         if msg["type"] == "groupchat":
             await self.handle_command(
                 msg["body"],
-                msg["from"].bare,
+                msg["from"],
                 msg["mucnick"],
                 msg,
                 True
@@ -286,7 +290,7 @@ class Bot(slixmpp.ClientXMPP):
         if msg["type"] in ("chat", "normal"):
             await self.handle_command(
                 msg["body"],
-                msg["from"].bare,
+                msg["from"],
                 None,
                 msg,
                 False
@@ -362,8 +366,18 @@ class Bot(slixmpp.ClientXMPP):
 
         cmd_name = cmd_obj.name
 
+        jid = None
+        muc = self.plugin.get("xep_0045", None)
+        if muc:
+            room = msg['from'].bare
+            nick = msg.get("mucnick") or msg["from"].resource
+            jid = muc.get_jid_property(room, nick, "jid")
+        if jid is None:
+            jid = sender_jid
+        jid = str(slixmpp.JID(jid))
+
         # determine sender role
-        user_role = await self.get_user_role(sender_jid)
+        user_role = await self.get_user_role(jid)
 
         # permission check
         if not check_permission(user_role, cmd_obj):
@@ -378,8 +392,6 @@ class Bot(slixmpp.ClientXMPP):
             result = handler(self, sender_jid, nick, args, msg, is_room)
             if inspect.isawaitable(result):
                 await result
-            else:
-                handler(self, sender_jid, nick, args, msg, is_room)
         except Exception as e:
             log.exception(f"[BOT]❌ Error while executing command '{cmd_name}'")
             if user_role in (Role.OWNER, Role.ADMIN):
@@ -393,12 +405,6 @@ class Bot(slixmpp.ClientXMPP):
 
 async def main():
     xmpp = Bot()
-
-    xmpp.register_plugin("xep_0030")
-    xmpp.register_plugin("xep_0045")
-    xmpp.register_plugin("xep_0084")
-    xmpp.register_plugin("xep_0163")
-    xmpp.register_plugin("xep_0054")
 
     # startup bot
     await xmpp.connect()

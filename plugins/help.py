@@ -29,6 +29,7 @@ Notes
 """
 
 import logging
+import slixmpp
 
 from utils.command import (
     command,
@@ -187,7 +188,20 @@ async def cmd_help(bot, sender_jid, nick, args, msg, is_room):
 
     query = " ".join(args).strip()
 
-    user_role = await bot.get_user_role(sender_jid)
+    room = msg['from'].bare
+    nick = msg['from'].resource
+
+    jid = None
+    muc = bot.plugin.get("xep_0045", None)
+    if muc:
+        jid = slixmpp.JID(muc.get_jid_property(
+            room, nick, "jid"))
+    if jid == "":
+        jid = sender_jid
+    jid = str(slixmpp.JID(jid))
+
+    # determine sender role
+    user_role = await bot.get_user_role(jid)
 
     pm = bot.plugins
 

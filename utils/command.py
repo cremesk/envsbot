@@ -286,3 +286,24 @@ def check_permission(user_role: Role, cmd: Command) -> bool:
     """
 
     return has_permission(user_role, cmd.role)
+
+
+def debug_leaks():
+    print("\n--- COMMAND REGISTRY DEBUG ---")
+
+    print("index size:", len(COMMANDS.index))
+    print("by_handler size:", len(COMMANDS.by_handler))
+    print("by_plugin size:", len(COMMANDS.by_plugin))
+    print("by_prefix size:", len(COMMANDS.by_prefix))
+
+    if COMMANDS.by_handler:
+        print("\nHandlers still referenced:")
+        for handler, tokens in COMMANDS.by_handler.items():
+            print(" ", handler, "->", tokens)
+
+    if COMMANDS.by_plugin:
+        print("\nPlugins still registered:")
+        for plugin, tokens in COMMANDS.by_plugin.items():
+            print(" ", plugin, "->", tokens)
+
+    print("--- END DEBUG ---\n")

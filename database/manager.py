@@ -38,6 +38,14 @@ class DatabaseManager:
         self.conn = await aiosqlite.connect(self.path)
         self.conn.row_factory = aiosqlite.Row
 
+        # ✅ ENABLE FOREIGN KEYS HERE (global, correct place)
+        await self.conn.execute("PRAGMA foreign_keys = ON;")
+
+        # (optional but clean)
+        cursor = await self.conn.execute("PRAGMA foreign_keys;")
+        if (await cursor.fetchone())[0] != 1:
+            raise RuntimeError("Failed to enable foreign keys")
+
         self.users = UserManager(self.conn)
         self.rooms = Rooms(self.conn)
 
@@ -60,19 +68,27 @@ class DatabaseManager:
                         timeout=self.flush_interval
                     )
                 except asyncio.TimeoutError:
-                    pass
-                if self.users:
-                    await self.users.flush_all()
+                    if self.users:
+                        try:
+                            await self.users.flush_all()
+                        except Exception:
+                            log.exception("[DatabaseManager] ❌Flush failed!")
         finally:
             # final guaranteed flush
             if self.users:
-                await self.users.flush_all()
+                try:
+                    await self.users.flush_all()
+                except Exception:
+                    log.exception("[DatabaseManager] ❌FINAL Flush failed!")
 
     async def flush(self):
         """Manually flush cached data."""
 
         if self.users:
-            await self.users.flush_all()
+            try:
+                await self.users.flush_all()
+            except Exception:
+                log.exception("[DatabaseManager] ❌Flush failed!")
 
     async def close(self):
         """
@@ -87,3 +103,40 @@ class DatabaseManager:
 
         if self.conn:
             await self.conn.close()
+
+    async def execute(self, query: str, params: tuple | None = None):
+        """
+        Execute a write query (INSERT/UPDATE/DELETE).
+
+        Automatically commits the transaction.
+        """
+        if params is None:
+            params = ()
+
+        cursor = await self.conn.execute(query, params)
+        await self.conn.commit()
+        return cursor
+
+    async def fetch_one(self, query: str, params: tuple | None = None):
+        """
+        Execute a query and return a single row.
+        """
+        if params is None:
+            params = ()
+
+        async with self.conn.execute(query, params) as cursor:
+            row = await cursor.fetchone()
+
+        return row
+
+    async def fetch_all(self, query: str, params: tuple | None = None):
+        """
+        Execute a query and return all rows.
+        """
+        if params is None:
+            params = ()
+
+        async with self.conn.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+
+        return rows

@@ -336,7 +336,7 @@ async def setup_profile(bot):
 # -------------------------------------------------
 # REGISTER
 # -------------------------------------------------
-def setup(bot):
+async def on_load(bot):
     """
     Register the profile plugin with the bot. That means it sets the the avatar
     and the vCard, if they've changed.
@@ -363,7 +363,4 @@ def setup(bot):
     bot.register_plugin("xep_0163")
     bot.register_plugin("xep_0084")
 
-    async def handler(event):
-        await setup_profile(bot)
-
-    bot.add_event_handler("session_start", handler)
+    await setup_profile(bot)

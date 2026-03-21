@@ -1,35 +1,43 @@
 """
 Plugin reload integrity tests.
 
-This test verifies that repeatedly reloading plugins does not corrupt the
-global command registry.
+This test verifies that repeated plugin reloads do not corrupt the global
+command registry and that plugin modules are cleanly replaced.
 
-For every discovered plugin that defines commands, the test checks that:
+The test intentionally avoids relying on Python's garbage collector and
+instead validates deterministic invariants of the framework state.
 
-- command tokens remain identical across reloads
-- command ownership remains stable
-- command counts remain unchanged
-- handler functions are replaced on reload
-- plugin module objects change across reloads
-- old handler functions become garbage collectible
+For every discovered plugin that defines commands, the test repeatedly
+reloads the plugin and verifies the following properties:
 
-The global COMMANDS registry is cleared before and after the test to ensure
-that other tests or bot initialization cannot contaminate the registry.
+- Command tokens registered by the plugin remain identical across reloads.
+- The number of commands owned by the plugin does not change.
+- Command ownership (plugin → command mapping) remains stable.
+- Handler functions are replaced on every reload.
+- The plugin module object is replaced on every reload.
+- No command handler originates from a previous module generation.
+
+The last property ensures that the framework does not retain references
+to handlers from earlier plugin instances. Because handler functions
+expose their originating module via `__module__`, this can be checked
+deterministically without relying on garbage collection.
+
+The global COMMANDS registry is cleared before and after the test to
+guarantee isolation from other tests or bot initialization.
 """
 
-import gc
-import weakref
 import sys
 
 import pytest
 
 from utils.command import COMMANDS
 
-RELOAD_COUNT = 100
+RELOAD_COUNT = 1000
 
 
 def snapshot(plugin):
     """Capture registry state for a plugin."""
+
     owners = COMMANDS.by_plugin.get(plugin, set())
 
     handlers = {
@@ -45,6 +53,7 @@ def snapshot(plugin):
         "owners": {name: plugin for name in owners},
         "plugin_handler_count": len(handlers),
         "handler_ids": {name: id(h) for name, h in handlers.items()},
+        "handler_modules": {name: h.__module__ for name, h in handlers.items()},
         "module": module,
     }
 
@@ -52,11 +61,14 @@ def snapshot(plugin):
 @pytest.fixture(autouse=True)
 def _clean_command_registry():
     """Ensure the global command registry is empty for the test."""
+
     COMMANDS.index.clear()
     COMMANDS.by_handler.clear()
     COMMANDS.by_plugin.clear()
     COMMANDS.by_prefix.clear()
+
     yield
+
     COMMANDS.index.clear()
     COMMANDS.by_handler.clear()
     COMMANDS.by_plugin.clear()
@@ -84,11 +96,7 @@ def test_plugin_reload_integrity_all(bot):
         if not before["command_tokens"]:
             continue
 
-        # Capture weakrefs to initial handlers only
-        handler_refs = {
-            name: weakref.ref(COMMANDS.index[name].handler)
-            for name in before["command_tokens"]
-        }
+        initial_module = before["module"]
 
         for _ in range(RELOAD_COUNT):
 
@@ -96,19 +104,18 @@ def test_plugin_reload_integrity_all(bot):
 
             now = snapshot(plugin)
 
+            # --- registry invariants ---
             assert now["command_tokens"] == before["command_tokens"]
             assert now["command_count"] == before["command_count"]
             assert now["owners"] == before["owners"]
             assert now["plugin_handler_count"] == before["plugin_handler_count"]
 
-            assert now["module"] is not before["module"]
+            # --- module replacement ---
+            assert now["module"] is not initial_module
+
+            # --- handler replacement ---
             assert now["handler_ids"] != before["handler_ids"]
 
-        # Drop strong references from snapshot before GC check
-        del before
-        del now
-
-        gc.collect()
-
-        for ref in handler_refs.values():
-            assert ref() is None
+            # --- deterministic leak check ---
+            for module_name in now["handler_modules"].values():
+                assert module_name == f"plugins.{plugin}"

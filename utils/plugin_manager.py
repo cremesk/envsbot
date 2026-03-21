@@ -94,6 +94,7 @@ CommandRegistry owns command lookup and execution routing.
 """
 
 
+import asyncio
 import importlib
 import pkgutil
 import sys
@@ -221,11 +222,16 @@ class PluginManager:
                     self.load(dep, _stack)
 
             # --------------------------------------------------
-            # SETUP HOOK
+            # ON_LOAD HOOK
             # --------------------------------------------------
 
-            if hasattr(module, "setup"):
-                module.setup(self.bot)
+            if hasattr(module, "on_load"):
+                hook = module.on_load
+
+                if inspect.iscoroutinefunction(hook):
+                    asyncio.create_task(hook(self.bot))
+                else:
+                    hook(self.bot)
 
             # --------------------------------------------------
             # COMMAND REGISTRATION
@@ -287,19 +293,37 @@ class PluginManager:
         Unload a plugin and remove all of its commands.
         """
 
-        module = self.plugins.get(plugin_name)
+        module = self.plugins.pop(plugin_name, None)
 
         if not module:
             return False
 
+        # --------------------------------------------------
+        # ON_UNLOAD HOOK
+        # --------------------------------------------------
+
+        if hasattr(module, "on_unload"):
+            hook = module.on_unload
+
+            if inspect.iscoroutinefunction(hook):
+                asyncio.create_task(hook(self.bot))
+            else:
+                hook(self.bot)
+
         # remove commands belonging to this plugin
         COMMANDS.remove_by_plugin(plugin_name)
+        # --- DEBUG ---
+        if log.isEnabledFor(logging.DEBUG):
+            from utils.command import debug_leaks
+            debug_leaks()
 
         # remove plugin module
-        self.plugins.pop(plugin_name, None)
+        self.meta.pop(plugin_name, None)
 
         # remove from sys.modules so reload works correctly
         modname = module.__name__
+
+        module.__dict__.clear()
 
         if modname in sys.modules:
             del sys.modules[modname]
@@ -310,7 +334,7 @@ class PluginManager:
     # RELOAD
     # --------------------------------------------------
 
-    def reload(self, name):
+    async def reload(self, name):
         """
         Reload a plugin.
         """

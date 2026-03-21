@@ -68,7 +68,7 @@ def bot(mock_config):
     if "bot" in sys.modules:
         importlib.reload(sys.modules["bot"])
 
-    from bot import Bot
+    from envsbot import Bot
 
     bot = Bot()
 

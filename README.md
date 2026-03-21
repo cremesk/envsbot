@@ -1,201 +1,126 @@
 # envsbot
 
-> ⚠️ **Status: Early Development**
-> This project is currently in an early development stage and may change
-> significantly.
-> Features, APIs, and internal structures are not yet considered stable.
->
-> It's not nearly complete and very important parts (like user management) are
-> still missing
+A modular XMPP bot built with Python 3 and slixmpp.
 
-## envs pubnix/tilde
-**envsbot** is planned for use on the '**envs**' pubnix / tilde shared Linux
-multiuser environment community.
+> ⚠️ **Early Stage Warning**
+> This project is still in active development. Features may change, break, or be incomplete.
 
 ---
 
-**envsbot** is a modular, plugin-driven chat bot framework written in Python.
+## 🌐 envs pubnix/tilde
 
-The project focuses on simplicity, clean architecture, and runtime extensibility.  
-Features are implemented as plugins which can be dynamically loaded, unloaded,
-or reloaded without restarting the bot.
-
-envsbot is designed to make it easy to extend functionality while keeping the
-core bot lightweight and maintainable.
+envsbot is developed with the **envs pubnix** environment in mind, but is not limited to it.
 
 ---
 
-## Features
+## 📖 About
+
+envsbot is a lightweight, plugin-driven XMPP bot designed for flexibility and experimentation.
+
+---
+
+## ✨ Features
 
 * Plugin-based architecture
-* Dynamic plugin loading / unloading / reload
-* Command handling system
-* Plugin dependency support
-* Structured database layer
-* Clean and modular codebase
-* Extensive automated test suite
+* Dynamic plugin loading / reloading
+* Command system via decorators
+* Structured database layer (in progress)
+* Test suite for core systems and plugins
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
-~~~
+```id="1ly8zn"
 envsbot/
-│
-├─ bot.py                    # Main bot runtime
-│
-├─ utils/                    # Core framework utilities
-│   ├─ command.py            # Command registry and decorators
-│   ├─ plugin_manager.py     # Plugin loading and lifecycle management
-│   └─ config.py             # Configuration loader / helpers
-│
-├─ database/                 # Database modules
-│   ├─ manager.py            # Database manager / connection handling
-│   ├─ rooms.py              # Room storage logic
-│   └─ users.py              # User storage logic
-│
-├─ plugins/                  # Bot plugins
-│   ├─ help.py
-│   ├─ plugins.py
-│   ├─ rooms.py
-│   ├─ status.py
-│   ├─ _reg_profile.py       # Internal self registration/profile plugin (vCard)
-│   └─ _test.py              # Development / testing plugin
-│
-├─ tests/                    # Automated test suite
-│   ├─ conftest.py           # Global pytest fixtures
-│   ├─ xmpp_fixtures.py
-│   │
-│   ├─ bot_core/             # Core bot behaviour tests
-│   │   ├─ test_bot.py
-│   │   ├─ test_permissions.py
-│   │   └─ test_reply.py
-│   │
-│   ├─ commands/             # Command framework tests
-│   │   ├─ test_commands.py
-│   │   ├─ test_commands_crash.py
-│   │   └─ test_commands_system.py
-│   │
-│   ├─ plugins/              # Plugin system tests
-│   │   ├─ test_plugin_integrity.py
-│   │   ├─ test_plugin_isolation.py
-│   │   ├─ test_plugin_manager_property.py
-│   │   ├─ test_plugin_manager_unit.py
-│   │   ├─ test_plugin_reload.py
-│   │   └─ test_plugin_reload_integrity.py
-│   │
-│   └─ integration/
-│       └─ test_integration.py
-│
-├─ config_sample.json        # Example configuration
-├─ requirements.txt
-├─ requirements-dev.txt
-├─ pyproject.toml
-├─ LICENSE
-└─ README.md
-~~~
+├── envsbot.py         # Main bot entrypoint
+├── plugins/           # Plugin modules
+├── utils/             # Core systems (commands, plugin manager)
+├── database/          # Database layer (WIP)
+├── tests/             # Test suite
+├── requirements.txt
+└── README.md
+```
 
 ---
 
-## Installation
+## ⚙️ Installation
 
-Clone the repository:
-
-~~~bash
-git clone <repository-url>
+```bash id="06szmh"
+git clone https://github.com/yourusername/envsbot.git
 cd envsbot
-~~~
-
-Create a virtual environment:
-
-~~~bash
-python3 -m venv venv
-~~~
-
-Activate the virtual environment:
-
-**Linux / macOS**
-
-~~~bash
-source venv/bin/activate
-~~~
-
-**Windows**
-
-~~~bash
-venv\Scripts\activate
-~~~
-
-Install dependencies:
-
-~~~bash
+python -m venv venv
+source venv/bin/activate  # Linux/macOS
 pip install -r requirements.txt
-~~~
-
-Create a configuration file:
-
-~~~bash
-cp config_sample.json config.json
-~~~
-
-Run the bot:
-
-~~~bash
-python bot.py
-~~~
+```
 
 ---
 
-## Development
+## ▶️ Running the Bot
 
-For development, install the additional development dependencies:
-
-~~~bash
-pip install -r requirements-dev.txt
-~~~
-
-These include tools required for running the automated test suite.
+```bash id="hw0mgg"
+python envsbot.py
+```
 
 ---
 
-## Running Tests
+## 🧩 Plugins (Quick Overview)
 
-The project includes an automated test suite.
+Plugins live in the `plugins/` directory and extend the bot’s functionality.
 
-Run all tests using:
+They can:
 
-~~~bash
+* Register commands
+* Hook into bot events
+* Be dynamically loaded or reloaded at runtime
+
+Example plugins include:
+
+* `help.py`
+* `status.py`
+* `rooms.py`
+* `users.py`
+
+---
+
+## 💬 Commands
+
+Commands are defined using decorators in the command system.
+
+Plugins can register commands that users trigger via chat messages.
+
+*(More detailed documentation coming later.)*
+
+---
+
+## 🧪 Testing
+
+Run tests with:
+
+```bash id="zqopwb"
 pytest
-~~~
+```
+
+The project includes tests for:
+
+* Command system
+* Plugin loading and isolation
+* Core functionality
 
 ---
 
-## TODO
+## 🛠️ Development Status
 
-### Core framework improvements
-* [ ] Improve safe hot-reload to prevent module memory leaks
-* [ ] Move `PLUGIN_META` discovery into `plugin_manager`
-* [ ] Improve plugin validation and error handling
-* [ ] Add better debugging / inspection tools for the command registry
+This project is under active development. Current areas in progress:
 
-### Plugin system
-* [ ] Add circular dependency detection for plugins
-* [ ] Prevent unloading plugins that are required by other plugins
-* [ ] Improve plugin dependency resolution
-* [ ] Add plugin configuration support
-
-### Core functionality still missing
-* [ ] Implement proper user / permission management
-* [ ] Expand bot configuration and persistence features
-* [ ] Add more essential built-in plugins
-
-### Development & tooling
-* [ ] Expand automated test coverage
-* [ ] Add documentation for plugin development
-* [ ] Add CI pipeline (linting and tests)
+* Database layer completion
+* Plugin dependency handling improvements
+* Additional core plugins
 
 ---
 
-## License
+## 📄 License
 
-This project is licensed under the **MIT License**.
+MIT License
+
+---

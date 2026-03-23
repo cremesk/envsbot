@@ -43,7 +43,8 @@ class DatabaseManager:
 
         # (optional but clean)
         cursor = await self.conn.execute("PRAGMA foreign_keys;")
-        if (await cursor.fetchone())[0] != 1:
+        row = await cursor.fetchone()
+        if row["foreign_keys"] != 1:
             raise RuntimeError("Failed to enable foreign keys")
 
         self.users = UserManager(self.conn)
@@ -127,6 +128,8 @@ class DatabaseManager:
         async with self.conn.execute(query, params) as cursor:
             row = await cursor.fetchone()
 
+        if not row:
+            return None
         return row
 
     async def fetch_all(self, query: str, params: tuple | None = None):

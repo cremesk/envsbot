@@ -18,8 +18,9 @@ async def test_ping_command(bot, xmpp_msg):
     the expected reply through the command pipeline.
     """
 
-    # Load the internal test plugin explicitly (bot no longer autoloads plugins)
-    bot.plugins.load("_test")
+    # Load the internal test plugin explicitly
+    # (bot no longer autoloads plugins)
+    await bot.plugins.load("_test")
 
     bot.get_user_role = AsyncMock(return_value=Role.OWNER)
 

@@ -19,11 +19,14 @@ class ProfileStore:
         )
         row = await cursor.fetchone()
 
-        if not row or not row[0]:
+        if not row:
             self.um._profile_meta[jid] = None
-            return {}
+            return {"plugins": {}}
+        if row[0] is None:
+            self.um._profile_meta[jid] = None
+            return {"plugins": {}}
 
-        raw_data, last_updated = row[0]
+        raw_data, last_updated = row
 
         try:
             return json.loads(raw_data)
@@ -145,11 +148,14 @@ class PluginRuntimeStore:
         )
         row = await cursor.fetchone()
 
-        if not row or not row[0]:
-            self.um._runtime_meta[jid] = None
+        if not row:
+            self.um._profile_meta[jid] = None
+            return {"plugins": {}}
+        if row[0] is None:
+            self.um._profile_meta[jid] = None
             return {"plugins": {}}
 
-        raw_data, last_updated = row[0]
+        raw_data, last_updated = row
 
         try:
             data = json.loads(raw_data)
@@ -438,7 +444,7 @@ class UserManager:
         return sorted(users, key=lambda u: u["jid"])
 
     async def delete(self, jid):
-        # --- delete from database ---
+        # 1. --- delete from database ---
         await self.db.execute(
             "DELETE FROM users WHERE jid = ?",
             (jid,)
@@ -454,81 +460,23 @@ class UserManager:
             (jid,)
         )
 
-        # --- remove from caches ---
+        # 2. --- remove from caches ---
         self._users_cache.pop(jid, None)
         self._profile_cache.pop(jid, None)
         self._runtime_cache.pop(jid, None)
 
-        # --- clean dirty flags ---
+        # 3. --- clean dirty flags ---
         self._dirty_users.discard(jid)
         self._dirty_profiles.discard(jid)
         self._dirty_runtime.discard(jid)
 
-    # ------------------------------------------------------------------
-    # JSON access (core primitive)
-    # ------------------------------------------------------------------
-
-    async def get_raw_json(self, table, jid, path="$"):
-        """
-        Fetch JSON (or sub-path) directly via SQLite JSON1.
-
-        Examples:
-            "$"                    → full object
-            "$.bio.age"           → nested value
-            "$.plugins.test"      → plugin namespace
-        """
-        cursor = await self.db.execute(
-            f"""
-            SELECT json_extract(data, ?)
-            FROM {table}
-            WHERE jid = ?
-            """,
-            (path, jid)
-        )
-        row = await cursor.fetchone()
-
-        if not row:
-            return None
-
-        return row[0]
-
-    # ------------------------------------------------------------------
-    # Profile (read + cache)
-    # ------------------------------------------------------------------
-
-    async def get_profile(self, jid):
-        if jid in self._profile_cache:
-            return self._profile_cache[jid]
-
-        raw = await self.get_raw_json("users_profile", jid, "$")
-
-        if isinstance(raw, str):
-            import json
-            data = json.loads(raw)
-        else:
-            data = raw or {}
-
-        self._profile_cache[jid] = data
-        return data
-
-    # ------------------------------------------------------------------
-    # Runtime (read + cache)
-    # ------------------------------------------------------------------
-
-    async def get_runtime(self, jid):
-        if jid in self._runtime_cache:
-            return self._runtime_cache[jid]
-
-        raw = await self.get_raw_json("users_runtime", jid, "$")
-
-        if isinstance(raw, str):
-            import json
-            data = json.loads(raw)
-        else:
-            data = raw or {}
-
-        self._runtime_cache[jid] = data
-        return data
+        # 4. --- remove from _nick_index ---
+        for nick in list(self._nick_index.keys()):
+            jids = self._nick_index[nick]
+            if jid in jids:
+                jids.discard(jid)
+                if not jids:
+                    del self._nick_index[nick]
 
     # ------------------------------------------------------------------
     # Helpers

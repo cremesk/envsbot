@@ -17,7 +17,7 @@ Command help:
 
 Examples:
   {prefix}help rooms
-  {prefix}help {prefix}join
+  {prefix}help {prefix}profile
   {prefix}help {prefix}status set
 
 Notes
@@ -44,7 +44,7 @@ log = logging.getLogger(__name__)
 
 PLUGIN_META = {
     "name": "help",
-    "version": "2.0",
+    "version": "0.1.0",
     "description": "Dynamic help for plugins and commands.",
     "category": "core",
 }
@@ -217,6 +217,13 @@ async def cmd_help(bot, sender_jid, nick, args, msg, is_room):
 
             # hide internal plugins for non-admin users
             if name.startswith("_") and user_role > Role.ADMIN:
+                continue
+
+            # collect commands visible to this user
+            commands = _commands_for_plugin(bot, name, user_role)
+
+            # hide plugins with no visible commands for non-admin users
+            if user_role > Role.ADMIN and not commands:
                 continue
 
             doc = _first_line(module.__doc__) or ""

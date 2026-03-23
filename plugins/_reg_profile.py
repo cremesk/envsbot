@@ -21,7 +21,7 @@ the last run, the plugin skips the update to reduce network
 traffic.
 
 The profile setup is executed automatically when the XMPP
-session starts.
+session starts or on plugin reload.
 """
 
 import hashlib
@@ -33,7 +33,7 @@ from utils.config import config
 
 PLUGIN_META = {
     "name": "profile",
-    "version": "1.0",
+    "version": "0.1.0",
     "description": "Bot avatar and vCard profile management",
     "category": "core"
 }

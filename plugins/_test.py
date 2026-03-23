@@ -13,7 +13,7 @@ from utils.command import command, Role, COMMANDS
 
 PLUGIN_META = {
     "name": "test",
-    "version": "1.2",
+    "version": "0.1.0",
     "description": "Testing commands for the bot.",
     "category": "test",
 }

@@ -1,15 +1,13 @@
 """
-Runtime plugin management commands.
+Plugin management commands.
 
-This module provides administrator commands to inspect and manage
-plugins while the bot is running. Plugins can be listed, loaded,
-reloaded, unloaded, and inspected without restarting the bot.
+This plugin exposes administrative commands for managing plugins at runtime,
+like loading, unloading, reloading and listing plugins.
 
-Plugins are grouped by category based on PLUGIN_META metadata.
+All commands rely on the async PluginManager API.
 """
 
 import logging
-import importlib
 from utils.command import command, Role
 
 log = logging.getLogger(__name__)
@@ -17,15 +15,10 @@ log = logging.getLogger(__name__)
 
 PLUGIN_META = {
     "name": "plugins",
-    "version": "3.2",
+    "version": "0.1.0",
     "description": "Runtime plugin management",
     "category": "core",
 }
-
-
-# --------------------------------------------------
-# LIST
-# --------------------------------------------------
 
 
 @command("plugin list", role=Role.ADMIN, aliases=["plugins list"])
@@ -33,343 +26,85 @@ async def plugin_list(bot, sender, nick, args, msg, is_room):
     """
     List all plugins grouped by category.
 
-    Shows currently loaded plugins and plugins available but not
-    loaded.
+    Shows both loaded and available (not loaded) plugins.
+
+    Usage:
+        {prefilx}plugins list
     """
-
-    loaded = bot.plugins.list()
-    available = bot.plugins.available()
-
-    categories = {}
-
-    for name in loaded:
-
-        meta = bot.plugins.meta.get(name, {})
-        category = meta.get("category", "other")
-
-        categories.setdefault(category, {"loaded": [], "available": []})
-        categories[category]["loaded"].append(name)
-
-    for name in available:
-
-        category = "other"
-
-        try:
-
-            module = importlib.import_module(f"plugins.{name}")
-            meta = getattr(module, "PLUGIN_META", {})
-            category = meta.get("category", "other")
-
-        except Exception:
-
-            log.warning(
-                "[PLUGIN] ⚠️ Failed reading metadata for plugin: %s",
-                name,
-            )
-
-        categories.setdefault(category, {"loaded": [], "available": []})
-        categories[category]["available"].append(name)
+    categories = await bot.plugins.list_detailed()
 
     lines = ["Plugin status"]
 
     for category in sorted(categories):
-
         block = categories[category]
 
         lines.append("")
         lines.append(f"[{category.upper()}]")
 
-        loaded_plugins = sorted(block["loaded"])
-        available_plugins = sorted(block["available"])
-
-        for name in loaded_plugins:
+        for name in sorted(block["loaded"]):
             lines.append(f"  [loaded] {name}")
 
-        for name in available_plugins:
+        for name in sorted(block["available"]):
             lines.append(f"  [not loaded] {name}")
 
-    log.info("[PLUGIN] 📜 Plugin list requested by %s", sender)
-
     bot.reply(msg, "\n".join(lines))
-
-
-# --------------------------------------------------
-# INFO
-# --------------------------------------------------
 
 
 @command("plugin info", role=Role.ADMIN, aliases=["plugins info"])
 async def plugin_info(bot, sender, nick, args, msg, is_room):
     """
-    Show metadata for a plugin.
+    Shows metadata of a plugin, like name, version, description and requires.
 
-    Usage
-    -----
-    {prefix}plugin info <plugin>
+    Usage:
+        {prefix}plugin info <plugin>
     """
-
     if not args:
-
-        bot.reply(msg, "⚠️ Usage: {prefix}plugin info <plugin>")
-
+        bot.reply(msg, "Usage: plugin info <plugin>")
         return
 
-    plugin = args[0].lower()
+    name = args[0].lower()
+    meta = await bot.plugins.get_plugin_info(name)
 
-    meta = None
-
-    if plugin in bot.plugins.meta:
-
-        meta = bot.plugins.meta.get(plugin)
-
-    else:
-
-        try:
-
-            module = importlib.import_module(f"plugins.{plugin}")
-            meta = getattr(module, "PLUGIN_META", {})
-
-        except Exception:
-
-            bot.reply(msg, f"⚠️ Plugin '{plugin}' not found.")
-
-            log.warning(
-                "[PLUGIN] ⚠️ Info requested for unknown plugin: %s",
-                plugin,
-            )
-
-            return
-
-    name = meta.get("name", plugin)
-    version = meta.get("version", "unknown")
-    desc = meta.get("description", "no description")
-    category = meta.get("category", "other")
-    requires = meta.get("requires", [])
+    if not meta:
+        bot.reply(msg, f"Plugin '{name}' not found.")
+        return
 
     lines = [
-        f"Plugin: {name}",
-        f"Version: {version}",
-        f"Category: {category}",
-        f"Description: {desc}",
+        f"Plugin: {meta.get('name', name)}",
+        f"Version: {meta.get('version', 'unknown')}",
+        f"Category: {meta.get('category', 'other')}",
+        f"Description: {meta.get('description', 'no description')}",
     ]
 
-    if requires:
-        lines.append("Requires: " + ", ".join(requires))
-
-    log.info("[PLUGIN] 📜 Plugin info requested by %s: %s",
-             sender, plugin)
+    if meta.get("requires"):
+        lines.append("Requires: " + ", ".join(meta["requires"]))
 
     bot.reply(msg, "\n".join(lines))
-
-
-# --------------------------------------------------
-# LOAD
-# --------------------------------------------------
 
 
 @command("plugin load", role=Role.ADMIN, aliases=["plugins load"])
 async def plugin_load(bot, sender, nick, args, msg, is_room):
     """
-    Load a plugin.
+    Load a plugin or all plugins. Only if it's not already loaded.
 
-    Usage
-    -----
-    {prefix}plugin load <plugin|all>
+    Usage:
+        {prefix}plugin load <plugin>
+        {prefix}plugin load all
     """
-
     if not args:
-
-        bot.reply(msg, "⚠️ Usage: {prefix}plugin load <plugin|all>")
-
+        bot.reply(msg, "Usage: plugin load <plugin|all>")
         return
 
     target = args[0].lower()
 
     if target == "all":
-
-        to_load = bot.plugins.available()
-
-        if not to_load:
-
-            bot.reply(msg, "ℹ️ All plugins are already loaded.")
-
-            log.warning("[PLUGIN] ⚠️ All plugins already loaded")
-
-            return
-
-        success = []
-        failed = []
-
-        for name in to_load:
-
-            try:
-
-                bot.plugins.load(name)
-
-                success.append(name)
-
-                log.info("[PLUGIN] 📦 Loaded plugin: %s", name)
-
-            except Exception as exc:
-
-                failed.append(f"{name} ({exc})")
-
-                log.exception(
-                    "[PLUGIN] ❌ Failed loading plugin: %s",
-                    name,
-                )
-
-        lines = []
-
-        if success:
-            lines.append("Loaded: " + ", ".join(success))
-
-        if failed:
-            lines.append("Failed: " + ", ".join(failed))
-
-        bot.reply(msg, "\n".join(lines))
-
+        for name in bot.plugins.available():
+            await bot.plugins.load(name)
+        bot.reply(msg, "All plugins loaded.")
         return
 
-    plugin = target
-
-    if plugin in bot.plugins.list():
-
-        bot.reply(msg, f"⚠️ Plugin '{plugin}' already loaded.")
-
-        log.warning("[PLUGIN] ⚠️ Plugin already loaded: %s", plugin)
-
-        return
-
-    try:
-
-        bot.plugins.load(plugin)
-
-        log.info("[PLUGIN] 📦 Plugin loaded: %s", plugin)
-
-        bot.reply(msg, f"Plugin '{plugin}' loaded.")
-
-    except Exception as exc:
-
-        log.exception("[PLUGIN] ❌ Load failed for plugin: %s", plugin)
-
-        bot.reply(msg, f"Load failed: {exc}")
-
-
-# --------------------------------------------------
-# RELOAD
-# --------------------------------------------------
-
-
-@command("plugin reload", role=Role.ADMIN, aliases=["plugins reload"])
-async def plugin_reload(bot, sender, nick, args, msg, is_room):
-    """
-    Reload a plugin.
-
-    Usage
-    -----
-    {prefix}plugin reload <plugin|all>
-    """
-
-    if not args:
-
-        bot.reply(msg, "⚠️ Usage: {prefix}plugin reload <plugin|all>")
-
-        return
-
-    target = args[0].lower()
-
-    if target == "all":
-
-        plugins = bot.plugins.list()
-
-        success = []
-        failed = []
-
-        for name in plugins:
-
-            if name == "plugins":
-                continue
-
-            try:
-
-                bot.plugins.reload(name)
-
-                success.append(name)
-
-                log.info("[PLUGIN] 🔁 Reloaded plugin: %s", name)
-
-            except Exception as exc:
-
-                failed.append(f"{name} ({exc})")
-
-                log.exception(
-                    "[PLUGIN] ❌ Reload failed for plugin: %s",
-                    name,
-                )
-
-        try:
-
-            bot.plugins.reload("plugins")
-
-            success.append("plugins")
-
-            log.info("[PLUGIN] 🔁 Reloaded plugin manager")
-
-        except Exception:
-
-            log.exception(
-                "[PLUGIN] ❌ Reload failed for plugin manager"
-            )
-
-        lines = []
-
-        if success:
-            lines.append("Reloaded: " + ", ".join(success))
-
-        if failed:
-            lines.append("Failed: " + ", ".join(failed))
-
-        bot.reply(msg, "\n".join(lines))
-
-        return
-
-    plugin = target
-
-    if plugin not in bot.plugins.list():
-
-        available = ", ".join(bot.plugins.list())
-
-        bot.reply(
-            msg,
-            f"⚠️ Plugin '{plugin}' not found. Available: {available}",
-        )
-
-        log.warning(
-            "[PLUGIN] ⚠️ Reload requested for unknown plugin: %s",
-            plugin,
-        )
-
-        return
-
-    try:
-
-        bot.plugins.reload(plugin)
-
-        log.info("[PLUGIN] 🔁 Plugin reloaded: %s", plugin)
-
-        bot.reply(msg, f"Plugin '{plugin}' reloaded.")
-
-    except Exception as exc:
-
-        log.exception("[PLUGIN] ❌ Reload failed for plugin: %s", plugin)
-
-        bot.reply(msg, f"Reload failed: {exc}")
-
-
-# --------------------------------------------------
-# UNLOAD
-# --------------------------------------------------
+    await bot.plugins.load(target)
+    bot.reply(msg, f"Plugin '{target}' loaded.")
 
 
 @command("plugin unload", role=Role.ADMIN, aliases=["plugins unload"])
@@ -377,53 +112,50 @@ async def plugin_unload(bot, sender, nick, args, msg, is_room):
     """
     Unload a plugin.
 
-    Usage
-    -----
-    {prefix}plugin unload <plugin>
+    Usage:
+        {prefix}plugin unload <plugin>
     """
-
     if not args:
-
-        bot.reply(msg, "⚠️ Usage: {prefix}plugin unload <plugin>")
-
+        bot.reply(msg, "Usage: plugin unload <plugin>")
         return
 
-    plugin = args[0].lower()
+    name = args[0].lower()
 
-    if plugin == "plugins":
-
-        bot.reply(msg, "⚠️ The plugin manager cannot unload itself.")
-
-        log.warning("[PLUGIN] ⚠️ Attempt to unload plugin manager")
-
+    if name == "plugins":
+        bot.reply(msg, "Cannot unload plugin manager.")
         return
 
-    if plugin not in bot.plugins.list():
+    success = await bot.plugins.unload(name)
 
-        available = ", ".join(bot.plugins.list())
+    if success:
+        bot.reply(msg, f"Plugin '{name}' unloaded.")
+    else:
+        bot.reply(msg, f"Plugin '{name}' is not loaded.")
 
-        bot.reply(
-            msg,
-            f"⚠️ Plugin '{plugin}' not found. Available: {available}",
-        )
 
-        log.warning(
-            "[PLUGIN] ⚠️ Unload requested for unknown plugin: %s",
-            plugin,
-        )
+@command("plugin reload", role=Role.ADMIN, aliases=["plugins reload"])
+async def plugin_reload(bot, sender, nick, args, msg, is_room):
+    """
+    Reload a plugin or all plugins, that are currently loaded.
 
+    Usage:
+        {prefix}plugin reload <plugin>
+        {prefix}plugin reload all
+    """
+    if not args:
+        bot.reply(msg, "Usage: plugin reload <plugin|all>")
         return
 
-    try:
+    target = args[0].lower()
 
-        bot.plugins.unload(plugin)
+    if target == "all":
+        for name in bot.plugins.list():
+            if name != "plugins":
+                await bot.plugins.reload(name)
 
-        log.info("[PLUGIN] 📦 Plugin unloaded: %s", plugin)
+        await bot.plugins.reload("plugins")
+        bot.reply(msg, "All plugins reloaded.")
+        return
 
-        bot.reply(msg, f"Plugin '{plugin}' unloaded.")
-
-    except Exception as exc:
-
-        log.exception("[PLUGIN] ❌ Unload failed for plugin: %s", plugin)
-
-        bot.reply(msg, f"Unload failed: {exc}")
+    await bot.plugins.reload(target)
+    bot.reply(msg, f"Plugin '{target}' reloaded.")

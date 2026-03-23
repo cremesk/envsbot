@@ -1,98 +1,15 @@
 """
-plugin_manager.py
+Async plugin manager for dynamic loading, unloading, and reloading of plugins.
 
-Plugin loading, unloading, and lifecycle management for the bot.
+This module provides the PluginManager class, which is responsible for:
+- Discovering plugins from a package
+- Loading plugins with dependency resolution
+- Registering commands into the global COMMANDS registry
+- Managing plugin lifecycle hooks (on_load / on_unload)
+- Tracking plugin metadata and event handlers
 
-This module is responsible for discovering plugin modules, importing them,
-registering their commands, and unloading them safely when requested.
-It acts as the central coordinator between plugin code and the command
-system.
-
-## Design goals
-
-* Allow plugins to be loaded and unloaded dynamically
-* Support safe hot-reloading of plugin modules
-* Ensure commands are registered only when a plugin is active
-* Ensure commands are removed when a plugin is unloaded
-* Keep plugin authorship simple (decorator-based commands)
-
-## Plugin model
-
-Plugins are normal Python modules located in the configured plugin
-directory. A plugin typically exposes one or more command handlers
-using the @command decorator from utils.command.
-
-Example:
-
-```
-@command("ping")
-async def ping_handler(...):
-    ...
-```
-
-During import, the decorator attaches command metadata to the handler
-function but does not register the command globally. The PluginManager
-performs the actual registration during plugin load.
-
-## Command registration
-
-When a plugin is loaded, PluginManager scans the module for callables
-that contain command metadata (stored by the decorator). For each
-declared command it registers the command with the global
-CommandRegistry.
-
-This ensures that command registration happens in a controlled place
-and that plugin reloads cannot accidentally accumulate duplicate
-commands.
-
-## Command removal
-
-When a plugin is unloaded, the PluginManager removes all commands
-belonging to that plugin using the registry’s ownership tracking:
-
-```
-CommandRegistry.remove_by_plugin(plugin_name)
-```
-
-This guarantees that unloading a plugin leaves no orphaned commands
-behind.
-
-## Security rules
-
-Plugins whose names begin with "_" are considered internal plugins.
-Commands from such plugins automatically require at least ADMIN role
-even if a lower role was declared in the decorator.
-
-This prevents accidental exposure of privileged internal commands.
-
-## Architecture overview
-
-```
-plugin module
-      │
-      ▼
-@command decorator
-      │
-      ▼
-handler.__commands__ metadata
-      │
-      ▼
-PluginManager._register_commands()
-      │
-      ▼
-CommandRegistry.register(...)
-      │
-      ▼
-resolve_command()
-      │
-      ▼
-Command.handler(...)
-```
-
-The PluginManager therefore owns the command lifecycle while the
-CommandRegistry owns command lookup and execution routing.
+All lifecycle operations are fully asynchronous and must be awaited.
 """
-
 
 import asyncio
 import importlib
@@ -108,18 +25,46 @@ log = logging.getLogger(__name__)
 
 class PluginManager:
     """
-    Runtime plugin manager responsible for plugin lifecycle.
+    Manages plugin lifecycle and integration with the bot.
+
+    This class is fully asynchronous. All lifecycle methods (load, unload,
+    reload, load_all) must be awaited.
+
+    Attributes:
+        bot: The bot instance used for registering event handlers.
+        package (str): Python package path where plugins are located.
+        plugins (dict): Loaded plugin modules mapped by name.
+        meta (dict): Cached PLUGIN_META per plugin.
+        _event_handlers (dict): Registered event handlers per plugin.
+        _lock (asyncio.Lock): Ensures safe concurrent lifecycle operations.
     """
 
     def __init__(self, bot, package="plugins"):
+        """Initialize the plugin manager."""
         self.bot = bot
         self.package = package
 
-        # plugin_name -> module
         self.plugins = {}
-
-        # plugin_name -> metadata
         self.meta = {}
+        self._event_handlers = {}
+
+        self._lock = asyncio.Lock()
+
+    # --------------------------------------------------
+    # EVENTS
+    # --------------------------------------------------
+
+    def register_event(self, plugin_name, event, handler):
+        """
+        Register an event handler for a plugin.
+
+        Args:
+            plugin_name (str): Name of the plugin.
+            event (str): Event name.
+            handler (callable): Event handler function.
+        """
+        self.bot.add_event_handler(event, handler)
+        self._event_handlers.setdefault(plugin_name, []).append((event, handler))
 
     # --------------------------------------------------
     # DISCOVERY
@@ -127,59 +72,76 @@ class PluginManager:
 
     def discover(self):
         """
-        Discover available plugin modules.
+        Discover available plugins in the configured package.
 
-        Returns
-        -------
-        list[str]
-            Sorted list of plugin module names.
+        Returns:
+            list[str]: Sorted list of plugin module names.
         """
-
         package = importlib.import_module(self.package)
-
-        plugins = []
-
-        for module in pkgutil.iter_modules(package.__path__):
-            plugins.append(module.name)
-
-        return sorted(plugins)
-
-    # --------------------------------------------------
-    # LISTING
-    # --------------------------------------------------
+        return sorted([m.name for m in pkgutil.iter_modules(package.__path__)])
 
     def list(self):
         """
-        Return names of currently loaded plugins.
-        """
+        List currently loaded plugins.
 
+        Returns:
+            list[str]: Sorted list of loaded plugin names.
+        """
         return sorted(self.plugins.keys())
 
     def available(self):
         """
-        Return discovered plugins that are not currently loaded.
-        """
+        List plugins that are available but not currently loaded.
 
+        Returns:
+            list[str]: Sorted list of plugin names.
+        """
         return sorted(set(self.discover()) - set(self.plugins))
 
     # --------------------------------------------------
-    # LOAD
+    # INTERNAL HELPERS
     # --------------------------------------------------
 
-    def load(self, name, _stack=None):
+    async def _run_hook(self, hook):
         """
-        Load a plugin module.
+        Execute a plugin hook safely.
 
-        Steps
-        -----
-        1. Import the module
-        2. Load dependencies declared in PLUGIN_META
-        3. Register commands
-        4. Run setup() hook if present
+        Supports both sync and async functions.
+
+        Args:
+            hook (callable): Hook function.
         """
+        if inspect.iscoroutinefunction(hook):
+            await hook(self.bot)
+        else:
+            await asyncio.to_thread(hook, self.bot)
 
+    async def _import(self, module_path):
+        """
+        Import a module asynchronously.
+
+        Args:
+            module_path (str): Full module path.
+
+        Returns:
+            module: Imported module.
+        """
+        return await asyncio.to_thread(importlib.import_module, module_path)
+
+    # --------------------------------------------------
+    # CORE (ASYNC)
+    # --------------------------------------------------
+
+    async def load(self, name, _stack=None):
+        """
+        Load a plugin and its dependencies.
+
+        Args:
+            name (str): Plugin name.
+            _stack (list, optional): Dependency stack for cycle detection.
+        """
         if name in self.plugins:
-            log.warning("[PLUGIN] ⚠️ Plugin already loaded: %s", name)
+            log.warning("[PLUGIN] already loaded: %s", name)
             return
 
         if _stack is None:
@@ -187,65 +149,114 @@ class PluginManager:
 
         if name in _stack:
             log.error(
-                "[PLUGIN] 🔁 Circular dependency detected: %s -> %s",
+                "[PLUGIN] circular dependency: %s -> %s",
                 " -> ".join(_stack),
                 name,
             )
             return
 
-        _stack.append(name)
+        _stack = _stack + [name]
 
         try:
+            log.info("[PLUGIN] loading: %s", name)
 
-            log.info("[PLUGIN] 📦 Loading plugin: %s", name)
-
-            module_path = f"{self.package}.{name}"
-
-            module = importlib.import_module(module_path)
-
+            module = await self._import(f"{self.package}.{name}")
             meta = getattr(module, "PLUGIN_META", {})
 
-            # --------------------------------------------------
-            # DEPENDENCIES
-            # --------------------------------------------------
-
+            # Load dependencies first
             for dep in meta.get("requires", []):
-
                 if dep not in self.plugins:
+                    await self.load(dep, _stack)
 
-                    log.info(
-                        "[PLUGIN] 🔗 Loading dependency '%s' for '%s'",
-                        dep,
-                        name,
-                    )
+            # Run on_load hook if present
+            async with self._lock:
+                if name in self.plugins:
+                    return
+                try:
+                    if hasattr(module, "on_load"):
+                        await self._run_hook(module.on_load)
 
-                    self.load(dep, _stack)
+                    # Register commands
+                    self._register_commands(name, module)
 
-            # --------------------------------------------------
-            # ON_LOAD HOOK
-            # --------------------------------------------------
+                    self.plugins[name] = module
+                    self.meta[name] = meta
 
-            if hasattr(module, "on_load"):
-                hook = module.on_load
-
-                if inspect.iscoroutinefunction(hook):
-                    asyncio.create_task(hook(self.bot))
-                else:
-                    hook(self.bot)
-
-            # --------------------------------------------------
-            # COMMAND REGISTRATION
-            # --------------------------------------------------
-
-            self._register_commands(name, module)
-
-            self.plugins[name] = module
-            self.meta[name] = meta
-
-            log.info("[PLUGIN] ✅ Plugin loaded: %s", name)
+                    log.info("[PLUGIN] loaded: %s", name)
+                except Exception:
+                    log.exception("[PLUGIN] ❌Failed to load plugin (on_load)"
+                                  f": '{name}'")
+                    COMMANDS.remove_by_plugin(name)
+                    raise
 
         finally:
-            _stack.pop()
+            pass
+
+    async def unload(self, name):
+        """
+        Unload a plugin and clean up all associated resources.
+
+        Args:
+            name (str): Plugin name.
+
+        Returns:
+            bool: True if unloaded, False if not loaded.
+        """
+        async with self._lock:
+            module = self.plugins.pop(name, None)
+            if not module:
+                return False
+
+            # Remove event handlers
+            for event, handler in self._event_handlers.pop(name, []):
+                self.bot.del_event_handler(event, handler)
+
+            # Run unload hook
+            if hasattr(module, "on_unload"):
+                try:
+                    await self._run_hook(module.on_unload)
+                except Exception:
+                    log.exception("[PLUGIN] on_unload failed: %s", name)
+
+            # Remove commands
+            COMMANDS.remove_by_plugin(name)
+
+            # Debug leak detection (if enabled)
+            if log.isEnabledFor(logging.DEBUG):
+                from utils.command import debug_leaks
+                debug_leaks()
+
+            # Cleanup metadata and module
+            self.meta.pop(name, None)
+
+            modname = module.__name__
+            module.__dict__.clear()
+            sys.modules.pop(modname, None)
+
+            log.info("[PLUGIN] unloaded: %s", name)
+            return True
+
+    async def reload(self, name):
+        """
+        Reload a plugin.
+
+        Args:
+            name (str): Plugin name.
+        """
+        log.info("[PLUGIN] reloading: %s", name)
+        await self.unload(name)
+        await self.load(name)
+
+    async def load_all(self):
+        """
+        Load all available plugins.
+        """
+        for plugin in self.discover():
+            if plugin not in self.plugins:
+                try:
+                    await self.load(plugin)
+                except Exception:
+                    log.exception("[PLUGIN] failed to load: %s", plugin)
 
     # --------------------------------------------------
     # COMMAND REGISTRATION
@@ -253,117 +264,75 @@ class PluginManager:
 
     def _register_commands(self, plugin_name, module):
         """
-        Register commands exposed by a plugin module.
-        """
+        Register commands defined in a plugin module.
 
+        This preserves the existing command system behavior.
+
+        Args:
+            plugin_name (str): Plugin name.
+            module (module): Plugin module.
+        """
         is_internal = plugin_name.startswith("_")
 
         for _, obj in inspect.getmembers(module):
             if callable(obj) and hasattr(obj, "_command_names"):
 
-                # --- REGISTER COMMAND ---
                 for name, cmd in getattr(obj, "__commands__", []):
                     COMMANDS.register(name, cmd, plugin_name)
 
                 for name in obj._command_names:
-                    # --------------------------------------------------
-                    # INTERNAL PLUGIN PERMISSION POLICY
-                    # --------------------------------------------------
-
                     if is_internal:
-
                         tokens = tuple(name.lower().split())
                         cmd = COMMANDS.get(tokens)
 
                         if cmd and cmd.role > Role.ADMIN:
-
-                            log.debug(
-                                "[PLUGIN] 🔒 Elevating role for internal command '%s' to ADMIN",
-                                name,
-                            )
-
                             cmd.role = Role.ADMIN
 
     # --------------------------------------------------
-    # UNLOAD
+    # HELPERS
     # --------------------------------------------------
 
-    def unload(self, plugin_name: str):
+    async def get_plugin_info(self, name):
         """
-        Unload a plugin and remove all of its commands.
+        Retrieve PLUGIN_META for a plugin.
+
+        Args:
+            name (str): Plugin name.
+
+        Returns:
+            dict | None: Plugin metadata or None if not found.
         """
+        if name in self.meta:
+            return self.meta[name]
 
-        module = self.plugins.pop(plugin_name, None)
+        try:
+            module = await self._import(f"{self.package}.{name}")
+            return getattr(module, "PLUGIN_META", {})
+        except Exception:
+            return None
 
-        if not module:
-            return False
-
-        # --------------------------------------------------
-        # ON_UNLOAD HOOK
-        # --------------------------------------------------
-
-        if hasattr(module, "on_unload"):
-            hook = module.on_unload
-
-            if inspect.iscoroutinefunction(hook):
-                asyncio.create_task(hook(self.bot))
-            else:
-                hook(self.bot)
-
-        # remove commands belonging to this plugin
-        COMMANDS.remove_by_plugin(plugin_name)
-        # --- DEBUG ---
-        if log.isEnabledFor(logging.DEBUG):
-            from utils.command import debug_leaks
-            debug_leaks()
-
-        # remove plugin module
-        self.meta.pop(plugin_name, None)
-
-        # remove from sys.modules so reload works correctly
-        modname = module.__name__
-
-        module.__dict__.clear()
-
-        if modname in sys.modules:
-            del sys.modules[modname]
-
-        return True
-
-    # --------------------------------------------------
-    # RELOAD
-    # --------------------------------------------------
-
-    async def reload(self, name):
+    async def list_detailed(self):
         """
-        Reload a plugin.
+        Get categorized plugin status.
+
+        Returns:
+            dict: {category: {"loaded": [...], "available": [...]}}
         """
+        loaded = set(self.plugins.keys())
+        available = set(self.discover()) - loaded
 
-        log.info("[PLUGIN] 🔄 Reloading plugin: %s", name)
+        result = {}
 
-        self.unload(name)
-        self.load(name)
+        for name in loaded:
+            meta = self.meta.get(name, {})
+            cat = meta.get("category", "other")
+            result.setdefault(cat, {"loaded": [], "available": []})
+            result[cat]["loaded"].append(name)
 
-    # --------------------------------------------------
-    # BULK LOAD
-    # --------------------------------------------------
+        for name in available:
+            meta = await self.get_plugin_info(name) or {}
+            cat = meta.get("category", "other")
+            result.setdefault(cat, {"loaded": [], "available": []})
+            result[cat]["available"].append(name)
 
-    def load_all(self):
-        """
-        Load all discovered plugins.
-        """
-
-        for plugin in self.discover():
-
-            if plugin in self.plugins:
-                continue
-
-            try:
-                self.load(plugin)
-
-            except Exception:
-
-                log.exception(
-                    "[PLUGIN] ❌ Failed to load plugin: %s",
-                    plugin,
-                )
+        return result

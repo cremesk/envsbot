@@ -4,6 +4,8 @@ import inspect
 import logging
 import time
 
+from slixmpp.xmlstream import ET
+
 from utils.plugin_manager import PluginManager
 from utils.config import config, setup_logging
 from utils.command import (
@@ -55,9 +57,15 @@ class PresenceManager:
 
         self.bot.send_presence(pshow=show, pstatus=status)
 
-        for room, nick in self.joined_rooms.items():
-            self.bot.send_presence(
-                pto=f"{room}/{nick}", pshow=show, pstatus=status)
+        # --- Get JOINED_ROOMS from "rooms" plugin ---
+        rooms_plugin = self.bot.plugins.plugins.get("rooms", None)
+        if rooms_plugin is not None:
+            rooms = dict(rooms_plugin.JOINED_ROOMS)
+            for room in rooms.keys():
+                self.bot.send_presence(
+                    pto=f"{room}/{rooms[room]["nick"]}",
+                    pshow=show,
+                    pstatus=status)
         # log message
         log.info(f"[PRESENCE] {self.emoji(show)} Status set: '{show}': [{status}]")
 
@@ -74,7 +82,6 @@ class Bot(slixmpp.ClientXMPP):
         super().__init__(config["jid"],
                          config["password"])
 
-        self.rooms = []
         self.nick = config.get("nick", "bot")
         self.admins = []
         self.prefix = config.get("prefix", ",")
@@ -137,8 +144,6 @@ class Bot(slixmpp.ClientXMPP):
                 nick,
                 pshow=self.presence.status["show"],
                 pstatus=self.presence.status["status"])
-            if room_jid not in self.rooms:
-                self.rooms.append(room_jid)
             self.presence.joined_rooms[room_jid] = nick
 
     def reply(self, msg, text, mention=True, thread=True, rate_limit=True):
@@ -203,6 +208,9 @@ class Bot(slixmpp.ClientXMPP):
                     except Exception:
                         log.debug("[BOT] ❌Setting Thread failed: {e}")
 
+            # Make reply ephemeral
+            message.append(ET.Element("{urn:xmpp:hints}no-store"))
+            # send reply
             message.send()
 
             # support test MockMessage
@@ -225,6 +233,9 @@ class Bot(slixmpp.ClientXMPP):
                     except Exception:
                         pass
 
+            # Make reply ephemeral
+            message.append(ET.Element("{urn:xmpp:hints}no-store"))
+            # Send message
             message.send()
 
             # support test MockMessage
@@ -239,7 +250,7 @@ class Bot(slixmpp.ClientXMPP):
         # Connect to DB
         await self.db.connect()
         # load plugins
-        self.plugins.load_all()
+        await self.plugins.load_all()
         # send presence again
         self.presence.broadcast()
         # set automatic mutual subscriptions
@@ -265,8 +276,6 @@ class Bot(slixmpp.ClientXMPP):
         # if the leaving nick is our own nick, we left the room
         if self.presence.joined_rooms.get(room) == nick:
             self.presence.joined_rooms.pop(room, None)
-            if room in self.rooms:
-                self.rooms.remove(room)
             log.info("[MUC] 🚪 Left room %s (%s)", room, nick)
 
     async def on_muc_message(self, msg):
@@ -382,6 +391,12 @@ class Bot(slixmpp.ClientXMPP):
         # permission check
         if not check_permission(user_role, cmd_obj):
             self.reply(msg, "❌You are not allowed to use this command.")
+            return
+
+        # Commands which require permissions of at least "moderator"
+        # shouldn't be used in GroupChat
+        if user_role <= Role.MODERATOR and is_room:
+            self.reply(msg, "❌Use this command in MUC Direct Message only.")
             return
 
         try:

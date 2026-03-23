@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 
 PLUGIN_META = {
     "name": "status",
-    "version": "1.1",
+    "version": "0.1.0",
     "description": "Bot presence and status management",
     "category": "core",
 }
@@ -30,8 +30,19 @@ async def show_status(bot, sender_jid, nick, args, msg, is_room):
 
     Description
     -----------
-    Shows the bot's current presence state (online, away, etc.)
-    and the optional status message that is broadcast to contacts
+    Shows the bot's current presence state. The following states are supported:
+    - online
+        Normal online status
+    - chat
+        If you're available for chatting or searching for for talking.
+    - away
+        Away status indicator for 'Away From Keyboard' events.
+    - xa
+        'Extended Away': For longer periods of being away, like sleeping.
+    - dnd
+        'Do Not Disturb': If you don't want to be contacted at the moment
+
+    And the optional status message that is broadcast to contacts
     and chatrooms.
 
     Example
@@ -100,14 +111,10 @@ async def status_set(bot, sender_jid, nick, args, msg, is_room):
     {prefix}status set dnd Busy working
     """
 
-    target = msg["from"].bare if is_room else msg["from"]
-    mtype = "groupchat" if is_room else "chat"
-
     if len(args) < 1:
-        bot.send_message(
-            mto=target,
-            mbody=f"Usage: {bot.prefix}status set <show> [message]",
-            mtype=mtype
+        bot.reply(
+            msg,
+            f"Usage: {bot.prefix}status set <show> [message]",
         )
         return
 
@@ -117,10 +124,9 @@ async def status_set(bot, sender_jid, nick, args, msg, is_room):
     valid_states = {"online", "chat", "away", "xa", "dnd"}
 
     if show not in valid_states:
-        bot.send_message(
-            mto=target,
-            mbody="Invalid status. Valid values: online, chat, away, xa, dnd",
-            mtype=mtype
+        bot.reply(
+            msg,
+            "Invalid status. Valid values: online, chat, away, xa, dnd",
         )
         return
 
@@ -133,10 +139,9 @@ async def status_set(bot, sender_jid, nick, args, msg, is_room):
     else:
         response = f"Status updated {emoji} ({show})"
 
-    bot.send_message(
-        mto=target,
-        mbody=response,
-        mtype=mtype
+    bot.reply(
+        msg,
+        response,
     )
 
     log.info(f"[STATUS] {response}")

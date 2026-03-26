@@ -703,7 +703,7 @@ async def rooms_leave(bot, sender_jid, nick, args, msg, is_room):
     except Exception:
         log.exception("[ROOMS] 🚶 Failed to leave room %s", room_jid)
 
-        bot.replyy(
+        bot.reply(
             msg,
             f"🚶 Failed to leave rooom: {room_jid}",
         )

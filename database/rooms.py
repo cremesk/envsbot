@@ -49,9 +49,14 @@ class Rooms:
         await self.conn.commit()
 
     async def update(self, room_jid, **fields):
+        # Only allow updates to these columns
+        allowed_fields = {"nick", "autojoin", "status"}
+        safe_fields = {k: v for k, v in fields.items() if k in allowed_fields}
+        if not safe_fields:
+            return
 
-        keys = ", ".join(f"{k}=?" for k in fields)
-        values = list(fields.values())
+        keys = ", ".join(f"{k}=?" for k in safe_fields)
+        values = list(safe_fields.values())
 
         await self.conn.execute(
             f"UPDATE rooms SET {keys} WHERE room_jid=?",

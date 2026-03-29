@@ -66,6 +66,10 @@ envsbot/
 
 ## TODO
 
+- [X] Plugin Management Plugin \[core\]
+- [X] User Management Plugin \[core\]
+- [X] Room Management Plugin \[core\]
+- [X] Profile Management Plugin \[core\]
 - [ ] Add more plugins
 - [ ] Improve documentation and usage examples
 - [ ] Enhance error handling and logging

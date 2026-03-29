@@ -671,3 +671,129 @@ async def _get_profile_field(bot, sender_jid, nick, args, msg, is_room,
             bot.reply(msg, lines)
         else:
             bot.reply(msg, f"{label} for {display_name}: {value}")
+
+
+@command("profile", role=Role.USER, aliases=["whois"])
+async def show_profile(bot, sender_jid, nick, args, msg, is_room):
+    """
+    Show all profile data for yourself or another user by nick.
+
+    Usage:
+        {prefix}profile
+        {prefix}profile <nick>
+
+    Example:
+        {prefix}profile
+        {prefix}profile Envsi
+    """
+    # Determine target JID and display name
+    if args:
+        # Try to resolve by nick in room or globally
+        target_nick = args[0]
+        # Room context
+        if (
+            is_room or (
+                msg.get("type") in ["chat", "normal"]
+                and hasattr(msg["from"], "bare")
+                and "@" in str(msg["from"].bare)
+                and str(msg["from"].bare) in JOINED_ROOMS
+            )
+        ):
+            room = msg["from"].bare
+            nicks = JOINED_ROOMS.get(room, {}).get("nicks", {})
+            info = nicks.get(target_nick)
+            if not info or not info.get("jid"):
+                log.warning(
+                    "[PROFILE] ❌ Nick '%s' not found in room '%s'",
+                    target_nick, room
+                )
+                bot.reply(
+                    msg,
+                    f"❌ Nick '{target_nick}' not found in this room."
+                )
+                return
+            target_jid = str(info["jid"])
+            display_name = target_nick
+            log.info(
+                "[PROFILE] 👤 Profile lookup for nick '%s' in room '%s'",
+                target_nick, room
+            )
+        else:
+            # DM context: lookup globally
+            index = bot.db.users._nick_index
+            jids = index.get(target_nick, [])
+            if not jids:
+                log.warning(
+                    "[PROFILE] ❌ Nick '%s' not found globally",
+                    target_nick
+                )
+                bot.reply(
+                    msg,
+                    f"❌ Nick '{target_nick}' not found."
+                )
+                return
+            if len(jids) > 1:
+                log.info(
+                    "[PROFILE] 🔎 Multiple users found for nick '%s': %s",
+                    target_nick, jids
+                )
+                bot.reply(
+                    msg,
+                    f"🔎 Multiple users found for nick '{target_nick}':\n"
+                    + "\n".join(f"- {jid}" for jid in jids)
+                )
+                return
+            target_jid = str(jids[0])
+            display_name = target_nick
+            log.info(
+                "[PROFILE] 👤 Profile lookup for nick '%s' (global)",
+                target_nick
+            )
+    else:
+        # No args: show own profile
+        target_jid = resolve_real_jid(bot, msg, is_room)
+        display_name = nick
+        log.info(
+            "[PROFILE] 👤 Profile lookup for self: %s",
+            display_name
+        )
+
+    profile_store = bot.db.users.profile()
+    fields = [
+        ("FULLNAME", "Full Name"),
+        ("LOCATION", "Location"),
+        ("TIMEZONE", "Timezone"),
+        ("PRONOUNS", "Pronouns"),
+        ("SPECIES", "Species"),
+        ("EMAIL", "Email"),
+        ("URLS", "URLs"),
+    ]
+    lines = [f"👤 Profile for {display_name}:"]
+    for field, label in fields:
+        value = await profile_store.get(target_jid, field)
+        if field == "URLS":
+            if value and isinstance(value, list):
+                if value:
+                    lines.append(f"- {label}:")
+                    for url, desc in value:
+                        if desc:
+                            lines.append(
+                                f"    • {urllib.parse.unquote(url)} — {desc}"
+                            )
+                        else:
+                            lines.append(
+                                f"    • {urllib.parse.unquote(url)}"
+                            )
+                else:
+                    lines.append(f"- {label}: —")
+            else:
+                lines.append(f"- {label}: —")
+        else:
+            if value is None or value == "" or value == []:
+                value = "—"
+            lines.append(f"- {label}: {value}")
+    log.info(
+        "[PROFILE] 📄 Profile output for %s",
+        display_name
+    )
+    bot.reply(msg, lines)

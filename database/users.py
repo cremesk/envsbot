@@ -608,7 +608,7 @@ class UserManager:
 
         # End Transaction
             await self.db.commit()
-            log.info("[DB] ✅ UserManager.flush_all() SUCCESSFUL!")
+            log.debug("[DB] ✅ UserManager.flush_all() SUCCESSFUL!")
         except Exception:
             await self.db.rollback()
             log.exception("[DB] FLUSH ALL FAILED!")

@@ -16,6 +16,14 @@ from plugins.rooms import JOINED_ROOMS
 
 log = logging.getLogger(__name__)
 
+PLUGIN_META = {
+    "name": "weather_time",
+    "version": "0.1.0",
+    "description": "Gives weather and time according to users location",
+    "category": "info",
+    "requires": ["rooms"],
+}
+
 
 def _room_context(msg, is_room):
     """Return (room, nicks) if in groupchat or MUC PM, else (None, None)."""

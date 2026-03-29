@@ -22,7 +22,7 @@ PLUGIN_META = {
     "name": "profile",
     "version": "0.1.0",
     "description": "User profile management",
-    "category": "core",
+    "category": "info",
     "requires": ["rooms"],
 }
 

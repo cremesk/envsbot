@@ -38,7 +38,6 @@ PLUGIN_META = {
     "version": "0.1.0",
     "description": "Bot avatar and vCard profile management",
     "category": "core",
-    "requires": ["users"],
 }
 
 # Setup logging

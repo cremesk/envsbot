@@ -368,7 +368,7 @@ async def rooms_add(bot, sender_jid, nick, args, msg, is_room):
 
     autojoin = len(args) >= 3 and args[2].lower() in ("true", "1", "yes")
 
-    db_room = bot.db.rooms.get(room_jid)
+    db_room = await bot.db.rooms.get(room_jid)
     if not db_room:
         await bot.db.rooms.add(room_jid, room_nick, autojoin)
 

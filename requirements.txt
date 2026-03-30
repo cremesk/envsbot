@@ -2,3 +2,4 @@ aiosqlite>=0.20
 slixmpp>=1.8
 pytz>=2023.3
 aiohttp>=3.8.0
+feedparser>=6.0.8

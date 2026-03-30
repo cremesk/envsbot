@@ -50,9 +50,6 @@ async def show_status(bot, sender_jid, nick, args, msg, is_room):
     {prefix}status
     """
 
-    target = msg["from"].bare if is_room else msg["from"]
-    mtype = "groupchat" if is_room else "chat"
-
     show = bot.presence.status["show"]
     message = bot.presence.status["status"]
 
@@ -69,7 +66,7 @@ async def show_status(bot, sender_jid, nick, args, msg, is_room):
     )
 
 
-@command("status set", role=Role.MODERATOR)
+@command("status set", role=Role.ADMIN)
 async def status_set(bot, sender_jid, nick, args, msg, is_room):
     """
     Change the bot presence and optional status message.

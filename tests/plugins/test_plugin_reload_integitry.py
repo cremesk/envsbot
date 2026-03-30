@@ -29,6 +29,7 @@ guarantee isolation from other tests or bot initialization.
 import sys
 
 import pytest
+from unittest.mock import MagicMock, AsyncMock
 
 from utils.command import COMMANDS
 
@@ -75,8 +76,23 @@ def _clean_command_registry():
     COMMANDS.by_prefix.clear()
 
 
-async def test_plugin_reload_integrity_all(bot):
+@pytest.fixture
+def bot_with_mocked_db():
+    bot = MagicMock()
+    # If using async methods, prefer AsyncMock
+    bot.db = MagicMock()
+    bot.db.users = MagicMock()
+    # If plugin is called as a method, not a property:
+    plugin_mock = AsyncMock()  # or MagicMock if not awaited
+    bot.db.users.plugin = MagicMock(return_value=plugin_mock)
+    # Optionally: set up `store` or any other attributes used in plugins
+    return bot
+
+
+async def test_plugin_reload_integrity_all(bot_with_mocked_db):
     """Repeated plugin reloads must not corrupt the command registry."""
+
+    bot = bot_with_mocked_db
 
     pm = bot.bot_plugins
     plugins = sorted(pm.discover())

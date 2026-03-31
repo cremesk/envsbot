@@ -56,80 +56,86 @@ async def fetch_feed(url):
     return await asyncio.to_thread(feedparser.parse, url)
 
 
-async def rss_check_loop(bot, url, period, rooms):
-    store = bot.db.users.plugin("rss")
+async def rss_check_loop(bot, store, url, period):
+    """Periodically check a feed for updates and post new items."""
     while True:
+        feeds = await get_feeds(store)
+        # Exit loop if feed has been deleted
+        if url not in feeds:
+            break
+
+        feed = feeds[url]
+        feed_title = feed["title"]
+        last_id = feed.get("last_id")
+        rooms = feed.get("rooms", [])
+
         try:
-            feed = await fetch_feed(url)
-            if feed.bozo:
-                log.warning(f"[RSS] Failed to parse feed: {url}")
-            else:
-                title = feed.feed.get("title", url)
-                entries = feed.entries
-                feeds = await get_feeds(store)
-                last_id = feeds.get(url, {}).get("last_id")
-                new_items = []
-                for entry in entries:
-                    entry_id = entry.get("id") or entry.get("link")
-                    if not entry_id:
-                        continue
-                    if last_id == entry_id:
-                        break
-                    new_items.append(entry)
-                if new_items:
-                    for entry in reversed(new_items):
-                        entry_title = entry.get("title", "(no title)")
-                        entry_link = entry.get("link", "")
-                        msg = f"[RSS] {entry_title} - {entry_link}"
-                        for room in rooms:
-                            if room in JOINED_ROOMS:
-                                bot.reply(
-                                    {
-                                        "from": type(
-                                            "F", (), {"bare": room}
-                                        )(),
-                                        "type": "groupchat",
-                                    },
-                                    msg,
-                                    mention=False,
-                                    thread=False,
-                                    rate_limit=False,
-                                    ephemeral=False,
-                                )
-                    feeds = await get_feeds(store)
-                    feeds[url]["last_id"] = (
-                        new_items[0].get("id") or new_items[0].get("link")
-                    )
-                    await save_feeds(store, feeds)
-                elif entries:
-                    feeds = await get_feeds(store)
-                    if feeds[url].get("last_id") is None:
-                        feeds[url]["last_id"] = (
-                            entries[0].get("id") or entries[0].get("link")
-                        )
-                        await save_feeds(store, feeds)
+            parsed = await asyncio.to_thread(feedparser.parse, url)
         except Exception as e:
-            log.exception(f"[RSS] Error checking feed {url}: {e}")
+            log.warning(f"Failed to fetch RSS feed {url}: {e}")
+            await asyncio.sleep(period)
+            continue
+
+        if not parsed.entries:
+            await asyncio.sleep(period)
+            continue
+
+        # Find new entries
+        new_entries = []
+        for entry in parsed.entries:
+            entry_id = entry.get("id") or entry.get("link")
+            if not entry_id:
+                continue
+            if last_id == entry_id:
+                break
+            new_entries.append(entry)
+
+        # Post new entries in reverse order (oldest first)
+        for entry in reversed(new_entries):
+            entry_id = entry.get("id") or entry.get("link")
+            entry_title = entry.get("title", "No title")
+            entry_link = entry.get("link", "")
+            msg = f"[RSS] ({feed_title}) {entry_title} - {entry_link}"
+            for room in rooms:
+                if room in JOINED_ROOMS:
+                    bot.reply(
+                        {
+                            "from": type(
+                                "F", (), {"bare": room}
+                            )(),
+                            "type": "groupchat",
+                        },
+                        msg,
+                        mention=False,
+                        thread=False,
+                        rate_limit=False,
+                        ephemeral=False,
+                    )
+            # Update last_id after posting
+            feeds = await get_feeds(store)
+            if url not in feeds:
+                break  # Feed was deleted during posting
+            feeds[url]["last_id"] = entry_id
+            await save_feeds(store, feeds)
+
         await asyncio.sleep(period)
 
 
-async def ensure_task(bot, url, period, rooms):
+async def ensure_task(bot, store, url, period):
+    """Ensure a check task is running for the given feed."""
     if url in CHECK_TASKS and not CHECK_TASKS[url].done():
         return
     CHECK_TASKS[url] = asyncio.create_task(
-        rss_check_loop(bot, url, period, rooms)
+        rss_check_loop(bot, store, url, period)
     )
 
 
 async def restart_all_tasks(bot):
-    for t in CHECK_TASKS.values():
-        if not t.done():
-            t.cancel()
-    CHECK_TASKS.clear()
     store = bot.db.users.plugin("rss")
     feeds = await get_feeds(store)
-    for url, data in feeds.items():
-        await ensure_task(bot, url, data["period"], data["rooms"])
+    for url, feed in feeds.items():
+        period = feed.get("period", 1200)
+        await ensure_task(bot, store, url, period)
 
 
 @command("rss", role=Role.MODERATOR)
@@ -185,7 +191,7 @@ async def rss_command(bot, sender_jid, nick, args, msg, is_room):
                 "last_id": None,
             }
             await save_feeds(store, feeds)
-            await ensure_task(bot, url, 1200, [room])
+            await ensure_task(bot, store, url, feeds[url]["period"])
             bot.reply(
                 msg,
                 f"✅ Added feed: {title} ({url}) every 1200s to {room}",
@@ -195,11 +201,12 @@ async def rss_command(bot, sender_jid, nick, args, msg, is_room):
                 feeds[url]["rooms"].append(room)
                 await save_feeds(store, feeds)
                 await ensure_task(
-                    bot, url, feeds[url]["period"], feeds[url]["rooms"]
+                    bot, store, url, feeds[url]["period"]
                 )
                 bot.reply(
                     msg,
-                    f"✅ Added room {room} to feed: {feeds[url]['title']} ({url})",
+                    f"✅ Added room {room} to feed:" +
+                    f" {feeds[url]['title']} ({url})",
                 )
             else:
                 bot.reply(
@@ -238,7 +245,7 @@ async def rss_command(bot, sender_jid, nick, args, msg, is_room):
             else:
                 await save_feeds(store, feeds)
                 await ensure_task(
-                    bot, url, feeds[url]["period"], feeds[url]["rooms"]
+                    bot, store, url, feeds[url]["period"]
                 )
                 bot.reply(
                     msg,

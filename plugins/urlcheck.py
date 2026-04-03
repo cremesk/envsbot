@@ -20,6 +20,9 @@ import re
 import aiohttp
 import logging
 
+import isodate
+
+from datetime import datetime
 from functools import partial
 
 from utils.command import command, Role
@@ -204,7 +207,8 @@ async def fetch_youtube_info(url):
     video_id = m.group(1)
     api_url = (
         f"https://www.googleapis.com/youtube/v3/videos"
-        f"?id={video_id}&part=snippet,statistics&key={api_key}"
+        f"?id={video_id}&part=snippet,statistics,"
+        f"contentDetails&key={api_key}"
     )
     async with aiohttp.ClientSession() as session:
         async with session.get(api_url, timeout=8) as resp:
@@ -217,13 +221,44 @@ async def fetch_youtube_info(url):
             info = items[0]
             snippet = info["snippet"]
             stats = info["statistics"]
+            content_details = info.get("contentDetails", {})
             title = snippet.get("title", "")
             uploader = snippet.get("channelTitle", "")
             views = stats.get("viewCount", "0")
-            likes = stats.get("likeCount", "0")
+            duration = content_details.get("duration", "")
+            upload_date = snippet.get("publishedAt", "")
+            # Format duration as 1h23m46s, 23m46s, or 46s
+            length_str = ""
+            if duration:
+                try:
+                    td = isodate.parse_duration(duration)
+                    total_seconds = int(td.total_seconds())
+                    hours, remainder = divmod(total_seconds, 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    if hours:
+                        length_str = f"{hours}h"
+                        if minutes:
+                            length_str += f"{minutes}m"
+                        if seconds:
+                            length_str += f"{seconds}s"
+                    elif minutes:
+                        length_str = f"{minutes}m"
+                        if seconds:
+                            length_str += f"{seconds}s"
+                    else:
+                        length_str = f"{seconds}s"
+                except Exception:
+                    length_str = duration
+            # Format upload date as "DD Mon YYYY" if possible
+            if upload_date:
+                try:
+                    upload_date = datetime.strptime(upload_date[:10], "%Y-%m-%d").strftime("%d %b %Y")
+                except Exception:
+                    pass
             return (
-                f'[YOUTUBE] "{title}" uploaded by {uploader} - '
-                f'Views: {views} - Likes {likes}'
+                f'[YOUTUBE] "{title}" uploaded by {uploader} '
+                f'({length_str}) - Views: {views}'
+                + (f' - {upload_date}' if upload_date else '')
             )
 
 
@@ -232,8 +267,3 @@ async def on_load(bot):
         "urlcheck",
         "groupchat_message",
         partial(on_groupchat_message, bot))
-
-#    bot.bot_plugins.register_event(
-#        "urlcheck", "groupchat_message",
-#        lambda msg: on_groupchat_message(bot, msg)
-#    )

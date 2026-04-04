@@ -109,7 +109,8 @@ async def time_command(bot, sender_jid, nick, args, msg, is_room):
     log.info(f"[TIME] 🕒 {display_name} ({target_jid}) ->"
              + f" {formatted} ({timezone}){loc_str}")
     bot.reply(msg, f"🕒 Time for {display_name}: {formatted}"
-                   + f" ({timezone}){loc_str}")
+                   + f" ({timezone}){loc_str}",
+              ephemeral=False)
 
 
 @command("weather", role=Role.USER, aliases=["w"])
@@ -162,4 +163,5 @@ async def weather_command(bot, sender_jid, nick, args, msg, is_room):
     log.info(f"[WEATHER] 🌤️ {display_name} ({target_jid}) ->"
              f" {weather.strip()}{tz_str} ({location})")
     bot.reply(msg, f"🌤️ Weather for {display_name}:"
-                   + f" {weather.strip()}{tz_str} ({location})")
+                   + f" {weather.strip()}{tz_str} ({location})",
+              ephemeral=False)

@@ -137,14 +137,14 @@ async def on_groupchat_message(bot, msg):
                 if yt_info:
                     bot.reply(
                         msg, yt_info, mention=False, thread=True,
-                        ephemeral=True
+                        ephemeral=False
                     )
                     continue
             if ctype and ctype.startswith("text/html") and title:
                 bot.reply(
                     msg,
                     f'[URL] "{title}" {st} ({final_url})',
-                    mention=False, thread=True, ephemeral=True
+                    mention=False, thread=True, ephemeral=False
                 )
             elif ctype:
                 return

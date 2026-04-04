@@ -283,7 +283,7 @@ async def fediverse_latest(bot, sender_jid, nick, args, msg, is_room):
         f"{url}",
         f"🔁 {boosts}   💬 {replies}   ❤️ {likes}"
     ]
-    bot.reply(msg, lines)
+    bot.reply(msg, lines, ephemeral=False)
 
 # ---------------- Urban Dictionary ----------------
 

@@ -15,10 +15,10 @@ Requires:
     - Users plugin (for runtime store)
     - YouTube Data API key in config as "youtube_api_key"
 """
-
 import re
 import aiohttp
 import logging
+import html
 
 import isodate
 
@@ -130,6 +130,7 @@ async def on_groupchat_message(bot, msg):
         return
 
     text = msg.get("body", "")
+    thread_id = msg.get("thread") or msg.get("id")
     # Only match URLs in lines that do not start with ">"
     lines = [line for line in text.splitlines() if not line.lstrip().startswith(">")]
     urls = []
@@ -141,25 +142,58 @@ async def on_groupchat_message(bot, msg):
     for url in urls:
         try:
             # handle up to 3 redirects manually
-            final_url, status, ctype, title, content_size = await fetch_url_title(
+            final_url, status, ctype, title, content_size, mdesc = await fetch_url_title(
                 url, max_redirects=3
             )
             st = f"(Status: {status})" if status != 200 else ""
             if is_youtube_url(final_url):
-                yt_info = await fetch_youtube_info(final_url)
+                yt_info, title, uploader, length_str, views = await fetch_youtube_info(final_url)
                 if yt_info:
-                    bot.reply(
-                        msg, yt_info, mention=False, thread=True,
-                        ephemeral=False
+                    message = bot.make_message(
+                        mto=msg["from"].bare,
+                        mbody=html.unescape(yt_info),
+                        mtype="groupchat"
                     )
+                    if thread_id:
+                        try:
+                            message["thread"] = thread_id
+                        except Exception:
+                            pass
+                    try:
+                        message["link_metadata"]["title"] = html.unescape(title)
+                        message["link_metadata"]["about"] = (
+                            f"Uploader: {uploader} - Length: {length_str}"
+                            f" - Views: {views}")
+                        message["link_metadata"]["description"] = html.unescape(yt_info)
+                        message["link_metadata"]["url"] = final_url
+                    except Exception as e:
+                        log.warning("[URLCHECK] Failed to set link metadata"
+                                    f" for YouTube info: {e}")
+                    message.send()
                     continue
-            #log.info(f"[URLCHECK] ctype is: {ctype}")
+            # log.info(f"[URLCHECK] ctype is: {ctype}")
             if ctype and ctype.startswith("text/html") and title:
-                bot.reply(
-                    msg,
-                    f'[URL] "{title}" {st} ({final_url})',
-                    mention=False, thread=True, ephemeral=False
+                message = bot.make_message(
+                    mto=msg["from"].bare,
+                    mbody=f'[URL] "{html.unescape(title)}" {st} ({final_url})',
+                    mtype="groupchat"
                 )
+                if thread_id:
+                    try:
+                        message["thread"] = thread_id
+                    except Exception:
+                        pass
+                try:
+                    message["link_metadata"]["title"] = html.unescape(title)
+                    message["link_metadata"]["url"] = final_url
+                    message["link_metadata"]["about"] = (
+                            f"Status: {status} - Content-Type: {ctype}"
+                            f" - Size: {content_size}")
+                    message["link_metadata"]["description"] = html.unescape(mdesc) or ""
+                except Exception as e:
+                    log.warning("[URLCHECK] Failed to set link metadata for "
+                                f"URL '{final_url}': {e}")
+                message.send()
             elif ctype:
                 return
         except Exception as e:
@@ -213,24 +247,29 @@ async def fetch_url_title(url, max_redirects=3):
                                           errors="replace")
                     except Exception:
                         text = raw.decode("utf-8", errors="replace")
-                    title = extract_html_title(text)
+                    title, mdesc = extract_html_title_desc(text)
                     return (
-                        resp.url.human_repr(), status, ctype, title, None
+                        resp.url.human_repr(), status,
+                        ctype, title, None, mdesc
                     )
                 else:
                     return (
                         resp.url.human_repr(), status, ctype,
-                        None, content_size
+                        None, content_size, mdesc
                     )
         raise Exception("Too many redirects")
 
 
-def extract_html_title(html):
+def extract_html_title_desc(html):
     m = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
-    if m:
-        return m.group(1).strip()
-    log.info("[URLCHECK] No title found in HTML")
-    return None
+    title = m.group(1).strip() if m else None
+    desc = None
+    mdesc = re.search(
+        r'<meta\s+name=["\']description["\']\s+content=["\'](.*?)["\']',
+        html, re.I | re.S)
+    if mdesc:
+        desc = mdesc.group(1).strip()
+    return title, desc
 
 
 async def fetch_youtube_info(url):
@@ -291,11 +330,12 @@ async def fetch_youtube_info(url):
                 try:
                     upload_date = datetime.strptime(upload_date[:10], "%Y-%m-%d").strftime("%d %b %Y")
                 except Exception:
-                    pass
+                    upload_date = ""
             return (
                 f'[YOUTUBE] "{title}" uploaded by {uploader} '
                 f'({length_str}) - Views: {views}'
-                + (f' - {upload_date}' if upload_date else '')
+                + (f' - {upload_date}' if upload_date else ''),
+                title, uploader, length_str, views
             )
 
 

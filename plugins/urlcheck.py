@@ -12,14 +12,13 @@ does provide additional Link information, the XEP-0511 attachment will be
 omitted to avoid redundancy, but the bot will still reply with the URL or
 YouTube info in the message text.
 
+Output of the same URL is temporary disabled for 2 minutes, after first
+fetch, to avoid spam if the same URL is posted multiple times in a short
+period.
+
 Command:
     {prefix}urlcheck on
     {prefix}urlcheck off
-
-Requires:
-    - aiohttp
-    - Users plugin (for runtime store)
-    - YouTube Data API key in config as "youtube_api_key"
 """
 import re
 import aiohttp
@@ -39,7 +38,7 @@ log = logging.getLogger(__name__)
 
 PLUGIN_META = {
     "name": "urlcheck",
-    "version": "0.1.0",
+    "version": "0.2.1",
     "description": "URL title and YouTube info fetcher for groupchats",
     "category": "info",
     "requires": ["users"],
@@ -62,6 +61,13 @@ YOUTUBE_RE = re.compile(
     """,
     re.I,
 )
+
+# Dict of URLs which have been requested with timestamp to avoid fetching
+# the same URL multiple times in a short period
+# formant _url_timestamp[room][url] = timestamp
+_url_timestamps = {}
+# seconds to wait until next URL output
+_wait_secs_url = 120
 
 
 async def get_urlcheck_store(bot):
@@ -134,6 +140,7 @@ async def on_groupchat_message(bot, msg):
     if room not in enabled_rooms:
         return
 
+
     text = msg.get("body", "")
     thread_id = msg.get("thread") or msg.get("id")
     # Only match URLs in lines that do not start with ">"
@@ -148,6 +155,21 @@ async def on_groupchat_message(bot, msg):
     has_xep_0511 = msg.xml.find("{urn:xmpp:ssn}x") is not None
 
     for url in urls:
+        # Check if room is in _url_timestamps, if not add it
+        now = datetime.now().timestamp()
+        if room not in _url_timestamps:
+            _url_timestamps[room] = {}
+        # delete all expired URLs
+        for u in dict(_url_timestamps[room]):
+            if _url_timestamps[room][u] < now - _wait_secs_url:
+                del _url_timestamps[room][u]
+        # if URL in _url_timestamps[room], skip it
+        # else add it to _url_timestamps[room] with current timestamp
+        if url in _url_timestamps[room]:
+            log.info(f"[URLCHECK] 🟡 Fetching '{url}' temporary disabled")
+            continue
+        _url_timestamps[room][url] = now
+
         try:
             # handle up to 3 redirects manually
             final_url, status, ctype, title, content_size, mdesc = (
@@ -249,7 +271,7 @@ async def on_groupchat_message(bot, msg):
 
                 message.send()
             elif ctype:
-                return
+                continue
         except Exception as e:
             if str(e) == "Too many redirects":
                 bot.reply(

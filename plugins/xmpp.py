@@ -23,6 +23,7 @@ import aiohttp
 import asyncio
 from utils.command import command, Role
 from plugins.rooms import JOINED_ROOMS
+from utils.config import config
 
 PLUGIN_META = {
     "name": "xmpp",
@@ -43,7 +44,7 @@ XMPP Utility Commands:
   {prefix}x uptime <jid>      - Show uptime (XEP-0012)
   {prefix}x srv <domain>      - DNS SRV lookup
   {prefix}x compliance <domain> - Compliance score
-"""
+""".format(prefix=config.get("prefix", ""))
 
 
 def _resolve_target(bot, args, msg, is_room, nick):

@@ -2,7 +2,7 @@
 SED plugin for message correction.
 
 This plugin allows users to correct their previous messages using sed-like syntax.
-It tracks the last message from each user and applies regex substitutions.
+Keeps only the last 10 messages per room in memory.
 
 Commands:
     s/<pattern>/<replacement>/<flags> - Correct last message
@@ -12,6 +12,7 @@ Commands:
 import re
 import logging
 from functools import partial
+from collections import deque, defaultdict
 from utils.command import command, Role
 from plugins.rooms import JOINED_ROOMS
 
@@ -27,65 +28,75 @@ PLUGIN_META = {
 
 SED_KEY = "SED"
 
-# Store last messages: {room_jid: {nick: message}, ...}
-LAST_MESSAGES = {}
+# Store only last 10 messages per room
+MESSAGE_CACHE = defaultdict(lambda: deque(maxlen=10))
 
-# Store messages by ID for reply tracking: {room_jid: {message_id: (nick, message)}, ...}
-MESSAGES_BY_ID = {}
-
-# Track which messages we've already processed to avoid duplicates
+# Track processed messages to avoid duplicates
 PROCESSED_STANZAS = set()
 
 
-def store_message(sender_jid, nick, room, message, msg_id, stanza_id=None):
-    """Store the last message from a user and by ID."""
-    if room:
-        if room not in LAST_MESSAGES:
-            LAST_MESSAGES[room] = {}
-        LAST_MESSAGES[room][nick] = message
-
-        if room not in MESSAGES_BY_ID:
-            MESSAGES_BY_ID[room] = {}
-
-        # Store by both msg_id and stanza_id
-        MESSAGES_BY_ID[room][msg_id] = (nick, message)
-        if stanza_id:
-            MESSAGES_BY_ID[room][stanza_id] = (nick, message)
-    else:
-        LAST_MESSAGES[str(sender_jid.bare)] = message
-        jid_str = str(sender_jid.bare)
-        if jid_str not in MESSAGES_BY_ID:
-            MESSAGES_BY_ID[jid_str] = {}
-        MESSAGES_BY_ID[jid_str][msg_id] = (None, message)
+def get_stanza_id(msg):
+    """Extract the stanza_id from a message."""
+    stanza_id = msg.get('stanza_id')
+    if stanza_id:
+        return stanza_id.get('id')
+    return None
 
 
-def get_last_message(sender_jid, nick, room):
-    """Get the last message from a user."""
-    if room:
-        if room not in LAST_MESSAGES or nick not in LAST_MESSAGES[room]:
-            return None
-        return LAST_MESSAGES[room][nick]
-    else:
-        jid_str = str(sender_jid.bare)
-        if jid_str not in LAST_MESSAGES:
-            return None
-        return LAST_MESSAGES[jid_str]
+def get_reply_target(msg):
+    """Get the ID of the message this is a reply to."""
+    if 'reply' in msg:
+        reply = msg.get('reply')
+        if reply:
+            return reply.get('id')
+    return None
+
+
+def extract_reply_quote(body):
+    """Extract the original message from a reply quote."""
+    lines = body.strip().split('\n')
+    quoted_lines = []
+
+    for line in lines:
+        if line.startswith('>'):
+            # Remove the '> ' prefix
+            quoted_lines.append(line[2:] if len(line) > 1 else "")
+        else:
+            break
+
+    return '\n'.join(quoted_lines) if quoted_lines else None
+
+
+def cache_message(room, nick, body, stanza_id):
+    """Add message to cache (only keeps last 10 per room)."""
+    MESSAGE_CACHE[room].append({
+        'nick': nick,
+        'body': body,
+        'stanza_id': stanza_id
+    })
+
+
+def get_last_message(room):
+    """Get the last message from cache."""
+    if not MESSAGE_CACHE[room]:
+        return None
+    return MESSAGE_CACHE[room][-1]['body']
 
 
 def get_message_by_id(room, msg_id):
-    """Get a message by its ID (for reply context)."""
-    if room not in MESSAGES_BY_ID:
+    """Get a message by its stanza_id from cache."""
+    if not MESSAGE_CACHE[room]:
         return None
-    if msg_id not in MESSAGES_BY_ID[room]:
-        return None
-    return MESSAGES_BY_ID[room][msg_id][1]  # Return just the message text
+
+    for msg_data in MESSAGE_CACHE[room]:
+        if msg_data['stanza_id'] == msg_id:
+            return msg_data['body']
+
+    return None
 
 
 def parse_sed_command(text):
-    """
-    Parse sed-like command: s/pattern/replacement/flags
-    Returns (pattern, replacement, flags) or (None, None, None) on error
-    """
+    """Parse sed-like command: s/pattern/replacement/flags"""
     if not text.startswith('s'):
         return None, None, None
 
@@ -108,7 +119,6 @@ def parse_sed_command(text):
 def apply_sed(original_text, pattern, replacement, flags_str):
     """
     Apply sed substitution to text.
-    Returns (new_text, num_replacements) or (None, 0) on error
 
     Flags:
         i - case insensitive
@@ -143,7 +153,7 @@ def apply_sed(original_text, pattern, replacement, flags_str):
             new_text, num = re.subn(pattern, replacement, original_text, count=1, flags=re_flags)
 
         return new_text, num
-    except re.error as e:
+    except re.error:
         return None, 0
 
 
@@ -171,38 +181,28 @@ def extract_sed_command(body):
     return body.strip()
 
 
-def get_stanza_id(msg):
-    """Extract the stanza_id from a message."""
-    stanza_id = msg.get('stanza_id')
-    if stanza_id:
-        return stanza_id.get('id')
-    return None
-
-
-def get_reply_target(msg):
-    """Get the ID of the message this is a reply to."""
-    if 'reply' in msg:
-        reply = msg.get('reply')
-        if reply:
-            return reply.get('id')
-    return None
-
-
-async def process_sed_correction(bot, sender_jid, nick, msg, is_room, pattern, replacement, flags_str):
+async def process_sed_correction(bot, nick, msg, is_room, pattern, replacement, flags_str):
     """Process a sed correction."""
     room = msg['from'].bare if is_room else None
+    body = msg.get("body", "").strip()
 
-    # Check if this is a reply to a specific message
-    reply_target_id = get_reply_target(msg)
-
-    # Try to get the message from reply context first
     last_msg = None
-    if is_room and reply_target_id:
-        last_msg = get_message_by_id(room, reply_target_id)
 
-    # If no reply context, get the last message from this user
-    if not last_msg:
-        last_msg = get_last_message(sender_jid, nick, room)
+    # 1. Try to extract from reply quote first
+    if is_room and body.startswith('>'):
+        quoted_msg = extract_reply_quote(body)
+        if quoted_msg:
+            last_msg = quoted_msg
+
+    # 2. Try to get message from reply target ID (fallback)
+    if not last_msg and is_room:
+        reply_target_id = get_reply_target(msg)
+        if reply_target_id:
+            last_msg = get_message_by_id(room, reply_target_id)
+
+    # 3. Fall back to last message in cache
+    if not last_msg and is_room:
+        last_msg = get_last_message(room)
 
     if not last_msg:
         bot.reply(msg, "❌ No previous message found to correct.")
@@ -223,7 +223,7 @@ async def process_sed_correction(bot, sender_jid, nick, msg, is_room, pattern, r
         return
 
     if is_room:
-        response = f"**{nick}**: {new_msg}"
+        response = f"> {last_msg}\n\n{new_msg}"
     else:
         response = new_msg
 
@@ -234,9 +234,6 @@ async def process_sed_correction(bot, sender_jid, nick, msg, is_room, pattern, r
 async def cmd_sed_handler(bot, sender_jid, nick, args, msg, is_room):
     """
     Handle sed corrections or enable/disable sed in a room.
-
-    If used in a MUC PM with on/off argument: configure the room setting
-    If used with a sed pattern: apply the correction
 
     Usage:
         {prefix}sed on|off              - Enable/disable sed (MUC PM, moderator only)
@@ -257,11 +254,7 @@ async def cmd_sed_handler(bot, sender_jid, nick, args, msg, is_room):
         room = msg["from"].bare
 
         if room not in JOINED_ROOMS:
-            bot.reply(
-                msg,
-                "This room is not a joined room. SED can only be "
-                "enabled or disabled for joined rooms."
-            )
+            bot.reply(msg, "This room is not a joined room.")
             return
 
         store = await get_sed_store(bot)
@@ -286,11 +279,11 @@ async def cmd_sed_handler(bot, sender_jid, nick, args, msg, is_room):
     replacement = args[1]
     flags_str = args[2] if len(args) > 2 else ""
 
-    await process_sed_correction(bot, sender_jid, nick, msg, is_room, pattern, replacement, flags_str)
+    await process_sed_correction(bot, msg.get("mucnick"), msg, True, pattern, replacement, flags_str)
 
 
 async def on_message(bot, msg):
-    """Track messages and handle sed commands."""
+    """Handle sed commands and cache messages."""
     try:
         body = msg.get("body", "").strip()
 
@@ -305,14 +298,12 @@ async def on_message(bot, msg):
             return
 
         PROCESSED_STANZAS.add(stanza_obj_id)
-        if len(PROCESSED_STANZAS) > 1000:
+        if len(PROCESSED_STANZAS) > 10000:
             PROCESSED_STANZAS.clear()
 
         is_room = msg.get("type") == "groupchat"
-        sender_jid = msg["from"]
         nick = msg.get("mucnick") if is_room else None
-        room = sender_jid.bare if is_room else None
-        msg_id = msg.get("id")
+        room = msg['from'].bare if is_room else None
         stanza_id = get_stanza_id(msg)
 
         if is_room:
@@ -324,19 +315,21 @@ async def on_message(bot, msg):
             if bot.presence.joined_rooms.get(room) == nick:
                 return
 
+        # Handle sed command BEFORE caching
         if is_sed_command(body):
             sed_cmd = extract_sed_command(body)
             pattern, replacement, flags_str = parse_sed_command(sed_cmd)
 
             if pattern is not None:
-                await process_sed_correction(bot, sender_jid, nick, msg, is_room, pattern, replacement, flags_str)
+                await process_sed_correction(bot, nick, msg, is_room, pattern, replacement, flags_str)
 
+            # Don't cache sed commands!
             return
 
+        # Cache non-sed messages (only keeps last 10 per room)
         if is_room:
-            store_message(sender_jid, nick, room, body, msg_id, stanza_id)
-        else:
-            store_message(sender_jid, None, None, body, msg_id)
+            cache_message(room, nick, body, stanza_id)
+
     except Exception as e:
         log.exception("[SED] Error in on_message: %s", e)
 

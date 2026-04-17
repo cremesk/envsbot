@@ -9,15 +9,14 @@ Schedule reminders to notify you at a later time.
 • remind delete <id> — Delete a reminder by ID
 
 **Duration Formats:**
-• 10s (seconds)
-• 5m (minutes)
-• 1h (hours)
-• 2d (days)
+• Single: 10s, 5m, 1h, 2d
+• Combined: 1h30m, 2d5h, 3d12h30m45s
 
 **Examples:**
 • ;remind 30m Take a break
 • ;remind 1h Important meeting
-• ;remind 365d Long term goal
+• ;remind 2d5h3m20s Long term goal with exact time
+• ;remind 1h30m Team standup
 • ;reminders
 • ;remind delete 1
 
@@ -54,18 +53,79 @@ def parse_duration(duration_str: str) -> int:
     """
     Parse duration string to seconds.
 
-    Formats: 10s, 5m, 1h, 2d
+    Supports:
+    - Single formats: 10s, 5m, 1h, 2d
+    - Combined formats: 2d5h3m20s, 1h30m, 3d12h, etc.
+
     Returns: seconds as int, or None if invalid
+
+    Examples:
+        - "30s" → 30
+        - "5m" → 300
+        - "1h30m" → 5400
+        - "2d5h3m20s" → 183800
     """
-    match = re.match(r'^(\d+)([smhd])$', duration_str.lower().strip())
-    if not match:
+    duration_str = duration_str.lower().strip()
+
+    if not duration_str:
         return None
 
-    amount = int(match.group(1))
-    unit = match.group(2)
-    multipliers = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}
+    # Pattern for each unit (optional)
+    pattern = r'(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?'
+    match = re.match(f'^{pattern}$', duration_str)
 
-    return amount * multipliers[unit]
+    if not match or duration_str == '':
+        return None
+
+    days, hours, minutes, seconds = match.groups()
+
+    # At least one unit must be specified
+    if not any([days, hours, minutes, seconds]):
+        return None
+
+    total_seconds = (
+        (int(days) if days else 0) * 86400 +
+        (int(hours) if hours else 0) * 3600 +
+        (int(minutes) if minutes else 0) * 60 +
+        (int(seconds) if seconds else 0)
+    )
+
+    return total_seconds if total_seconds > 0 else None
+
+
+def format_seconds(total_seconds: float) -> str:
+    """
+    Convert seconds to human-readable format.
+
+    Examples:
+        30 → "30s"
+        90 → "1m 30s"
+        3661 → "1h 1m 1s"
+        183800 → "2d 5h 3m 20s"
+    """
+    if total_seconds < 0:
+        return "overdue"
+
+    days = int(total_seconds // 86400)
+    remaining = total_seconds % 86400
+
+    hours = int(remaining // 3600)
+    remaining = remaining % 3600
+
+    minutes = int(remaining // 60)
+    seconds = int(remaining % 60)
+
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0:
+        parts.append(f"{hours}h")
+    if minutes > 0:
+        parts.append(f"{minutes}m")
+    if seconds > 0 or not parts:  # Show seconds if nothing else or if it's the only unit
+        parts.append(f"{seconds}s")
+
+    return " ".join(parts)
 
 
 async def schedule_reminder_task(bot, reminder_id: int, jid: str, nick: str,
@@ -98,11 +158,11 @@ async def schedule_reminder_task(bot, reminder_id: int, jid: str, nick: str,
 
         # Send the actual reminder
         if original_msg is not None:
-            # ✅ Send to original message (group chat with threading)
+            # Send to original message (group chat with threading)
             bot.reply(original_msg, reminder_text, ephemeral=False, mention=False)
             log.info(f"[REMINDER] ✅ Reminder {reminder_id} sent to {jid}")
         else:
-            # ✅ After bot restart: Send via direct message or to room
+            # After bot restart: Send via direct message or to room
             try:
                 if room_jid:
                     # Send to room
@@ -126,7 +186,7 @@ async def schedule_reminder_task(bot, reminder_id: int, jid: str, nick: str,
             except Exception as e:
                 log.exception(f"[REMINDER] 🔴 Failed to send reminder {reminder_id}: {e}")
 
-        # ✅ Delete immediately after sending
+        # Delete immediately after sending
         await bot.db.reminders.delete(reminder_id)
         log.info(f"[REMINDER] 🗑️ Reminder {reminder_id} deleted after sending")
 
@@ -192,7 +252,7 @@ async def remind_command(bot, sender_jid, nick, args, msg, is_room):
         return
 
     try:
-        # ✅ Save room_jid if reminder was created in a chat
+        # Save room_jid if reminder was created in a chat
         room_jid = msg['from'].bare if is_room else None
 
         # Store in database
@@ -254,25 +314,13 @@ async def list_reminders(bot, sender_jid, nick, args, msg, is_room):
                 remind_at = datetime.datetime.fromisoformat(remind_at)
 
             time_left = remind_at - datetime.datetime.now(datetime.timezone.utc)
+            total_seconds = time_left.total_seconds()
 
-            if time_left.total_seconds() < 0:
-                time_str = "overdue"
-            else:
-                total_seconds = time_left.total_seconds()
-
-                if total_seconds < 60:
-                    time_str = f"in {int(total_seconds)}s"
-                elif total_seconds < 3600:
-                    time_str = f"in {int(total_seconds / 60)}m"
-                elif total_seconds < 86400:
-                    hours = total_seconds / 3600
-                    time_str = f"in {hours:.1f}h"
-                else:
-                    days = total_seconds / 86400
-                    time_str = f"in {days:.1f}d"
+            # Use format_seconds function
+            time_str = format_seconds(total_seconds)
 
             lines.append(
-                f"  • ID {reminder['id']}: {reminder['message']} ({time_str})"
+                f"  • ID {reminder['id']}: {reminder['message']} (in {time_str})"
             )
 
         bot.reply(msg, lines)
@@ -378,7 +426,7 @@ async def on_ready(bot):
 
             overdue_str = None
 
-            # ✅ Guarantee that seconds_left is always at least 0.1 seconds
+            # Guarantee that seconds_left is always at least 0.1 seconds
             # This ensures EVERY reminder is sent, even if overdue!
             if seconds_left < 0.1:
                 # Calculate how long it has been overdue

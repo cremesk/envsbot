@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 PLUGIN_META = {
     "name": "profile",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "description": "User profile management",
     "category": "info",
     "requires": ["rooms"],
@@ -64,6 +64,23 @@ async def _check_user_exists(bot, sender_jid, msg):
         bot.reply(msg, "🔴  You are not a registered user.")
         return False
     return True
+
+
+async def _unset_field(bot, jid, field_name, label, msg):
+    """
+    Helper to unset (clear) a profile field.
+
+    Args:
+        bot: The bot instance.
+        jid: The user's JID.
+        field_name: The field key (e.g., "FULLNAME").
+        label: The display name (e.g., "Full Name").
+        msg: The message object.
+    """
+    profile_store = bot.db.users.profile()
+    await profile_store.set(str(jid), field_name, None)
+    log.info("[PROFILE] 🗑️ %s unset for %s", field_name, jid)
+    bot.reply(msg, f"🗑️ {label} removed.")
 
 
 @command("config fullname", role=Role.USER, aliases=["c fullname"])
@@ -776,6 +793,65 @@ async def get_birthday(bot, sender_jid, nick, args, msg, is_room):
                        + f" ({days_str} until next birthday)")
     except Exception:
         bot.reply(msg, f"🎂 Birthday for {display_name}: {value}")
+
+
+@command("config unset", role=Role.USER, aliases=["c unset"])
+async def unset_field(bot, sender_jid, nick, args, msg, is_room):
+    """
+    Unset (clear) a profile field.
+
+    Usage:
+        {prefix}config unset <field>
+        {prefix}c unset <field>
+
+    Available fields:
+        fullname, location, timezone, birthday, pronouns, species, email, urls
+
+    Example:
+        {prefix}config unset fullname
+        {prefix}config unset birthday
+    """
+    jid = resolve_real_jid(bot, msg, is_room)
+    if not await _check_user_exists(bot, jid, msg):
+        return
+
+    if not args or len(args) != 1:
+        log.warning("[PROFILE] 🔴  UNSET missing/invalid args for %s", jid)
+        bot.reply(
+            msg,
+            f"🟡️ Usage: {config.get('prefix', ',')}config unset "
+            "<field>\n"
+            "Available fields: fullname, location, timezone, birthday, "
+            "pronouns, species, email, urls",
+        )
+        return
+
+    field_arg = args[0].lower().strip()
+
+    field_map = {
+        "fullname": ("FULLNAME", "Full Name"),
+        "location": ("LOCATION", "Location"),
+        "timezone": ("TIMEZONE", "Timezone"),
+        "birthday": ("BIRTHDAY", "Birthday"),
+        "pronouns": ("PRONOUNS", "Pronouns"),
+        "species": ("SPECIES", "Species"),
+        "email": ("EMAIL", "Email"),
+        "urls": ("URLS", "URLs"),
+    }
+
+    if field_arg not in field_map:
+        log.warning("[PROFILE] 🔴  Invalid field for unset for %s: %s",
+                    jid, field_arg)
+        bot.reply(
+            msg,
+            f"🟡️ Unknown field '{field_arg}'.\n"
+            "Available fields: fullname, location, timezone, birthday, "
+            "pronouns, species, email, urls",
+        )
+        return
+
+    field_name, label = field_map[field_arg]
+    await _unset_field(bot, jid, field_name, label, msg)
 
 
 @command("profile", role=Role.USER, aliases=["whois"])

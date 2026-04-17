@@ -258,7 +258,7 @@ async def remind_command(bot, sender_jid, nick, args, msg, is_room):
         # Save room_jid if reminder was created in a chat
         room_jid = msg['from'].bare if is_room else None
 
-        # Store in database (NUR EINMAL!)
+        # Store in database
         reminder_id = await bot.db.reminders.create(
             user_jid=str(sender_jid),
             message=message,

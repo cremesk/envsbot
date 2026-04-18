@@ -117,7 +117,7 @@ async def on_load(bot):
     muc = bot.plugin["xep_0045"]
     rooms_db = bot.db.rooms
     if muc is None or rooms_db is None:
-        log.warning("[ROOMS] 🟡️missing dependencies: "
+        log.warning("[ROOMS] 🟡️ missing dependencies: "
                     f"rooms_db={'OK' if rooms_db is not None else 'missing'} "
                     f"xep_0045={'OK' if muc is not None else 'missing'}")
         return
@@ -282,7 +282,7 @@ async def autojoin_rooms(bot):
     muc = bot.plugin["xep_0045"]
     rooms_db = bot.db.rooms
     if muc is None or rooms_db is None:
-        log.warning("[ROOMS] 🟡️missing dependencies: "
+        log.warning("[ROOMS] 🟡️ missing dependencies: "
                     f"rooms_db={'OK' if rooms_db is not None else 'missing'} "
                     f"xep_0045={'OK' if muc is not None else 'missing'}")
         return
@@ -425,7 +425,7 @@ async def rooms_update(bot, sender_jid, nick, args, msg, is_room):
             msg,
             f"🟡️ Invalid room JID: {room_jid}",
         )
-        log.warning(f"[ROOMS] 🟡️Room '{room_jid}' not valid!")
+        log.warning(f"[ROOMS] 🟡️ Room '{room_jid}' not valid!")
         return
 
     field = args[1].lower()
@@ -487,7 +487,7 @@ async def rooms_delete(bot, sender_jid, nick, args, msg, is_room):
             msg,
             f"🟡️ Invalid room JID: {room_jid}",
         )
-        log.warning(f"[ROOMS] 🟡️Room '{room_jid}' not valid!")
+        log.warning(f"[ROOMS] 🟡️ Room '{room_jid}' not valid!")
         return
 
     try:

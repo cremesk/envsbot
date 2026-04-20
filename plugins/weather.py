@@ -23,11 +23,10 @@ PLUGIN_META = {
     "requires": ["rooms"],
 }
 
+log = logging.getLogger(__name__)
+
 
 def get_pm_target(sender_jid, nick):
-    """
-    Returns (bare_jid, nick_for_display)
-    """
     if hasattr(sender_jid, "bare"):
         bare_jid = sender_jid.bare
     else:
@@ -39,13 +38,13 @@ def get_pm_target(sender_jid, nick):
 async def weather_command(bot, sender_jid, nick, args, msg, is_room):
     """
     Show the current weather for your configured location or another user's location.
-
     Usage:
         {prefix}weather
         {prefix}weather <nick>
     """
+    profile_store = bot.db.users.profile()
+
     if is_room:
-        # Multi-User Chat: get target jid from nick
         room = msg["from"].bare
         nicks = JOINED_ROOMS.get(room, {}).get("nicks", {})
         if args:
@@ -64,9 +63,26 @@ async def weather_command(bot, sender_jid, nick, args, msg, is_room):
             target_jid = str(info["jid"])
             display_name = nick
     else:
-        target_jid, display_name = get_pm_target(sender_jid, nick)
+        # Direct message: allow querying someone else by their nick, fallback to self
+        if args:
+            target_nick = args[0]
+            # Try to find a user by nickname in the database
+            # get_all_users returns [{jid, nickname, ...}]
+            all_users = await bot.db.users.get_all_users()
+            match = None
+            for user in all_users:
+                if user.get('nickname', '').lower() == target_nick.lower():
+                    match = user
+                    break
+            if match:
+                target_jid = match['jid']
+                display_name = match.get('nickname') or target_nick
+            else:
+                bot.reply(msg, f"🔴  No user with nick '{target_nick}' is known.")
+                return
+        else:
+            target_jid, display_name = get_pm_target(sender_jid, nick)
 
-    profile_store = bot.db.users.profile()
     location = await profile_store.get(target_jid, "LOCATION")
     timezone = await profile_store.get(target_jid, "TIMEZONE")
 

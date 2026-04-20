@@ -961,7 +961,19 @@ async def show_profile(bot, sender_jid, nick, args, msg, is_room):
     else:
         # No args: show own profile
         target_jid = resolve_real_jid(bot, msg, is_room)
-        display_name = nick
+        store = bot.db.users.plugin("users")
+        try:
+            roomnicks = await store.get(target_jid, "roomnicks")
+            for room in roomnicks or []:
+                if room:
+                    display_name = roomnicks[room][0]
+                    break
+        except Exception as e:
+            log.warning(
+            "[PROFILE] 🔴  Failed to get roomnicks for %s: %s",
+            target_jid, e
+            )
+            display_name = "unknown"
         log.info(
             "[PROFILE] 👤 Profile lookup for self: %s",
             display_name

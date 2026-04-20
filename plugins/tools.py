@@ -16,6 +16,7 @@ Commands:
 """
 
 import pytz
+import logging
 from datetime import datetime
 from utils.command import command, Role
 from utils.config import config
@@ -73,6 +74,16 @@ async def echo_command(bot, sender_jid, nick, args, msg, is_room):
     bot.reply(msg, f"🔊 {message}", ephemeral=False)
 
 
+log = logging.getLogger(__name__)
+
+def get_pm_target(sender_jid, nick):
+    if hasattr(sender_jid, "bare"):
+        bare_jid = sender_jid.bare
+    else:
+        bare_jid = str(sender_jid).split('/')[0]
+    return bare_jid, nick
+
+
 @command("time", role=Role.USER, aliases=["t"])
 async def time_command(bot, sender_jid, nick, args, msg, is_room):
     """
@@ -81,8 +92,9 @@ async def time_command(bot, sender_jid, nick, args, msg, is_room):
     Usage:
         {prefix}time
         {prefix}time <nick>
-
     """
+    profile_store = bot.db.users.profile()
+
     if is_room:
         room = msg["from"].bare
         nicks = JOINED_ROOMS.get(room, {}).get("nicks", {})
@@ -102,9 +114,24 @@ async def time_command(bot, sender_jid, nick, args, msg, is_room):
             target_jid = str(info["jid"])
             display_name = nick
     else:
-        target_jid, display_name = get_pm_target(sender_jid, nick)
+        # Direct message: allow querying someone else by their nick, fallback to self
+        if args:
+            target_nick = args[0]
+            all_users = await bot.db.users.get_all_users()
+            match = None
+            for user in all_users:
+                if user.get('nickname', '').lower() == target_nick.lower():
+                    match = user
+                    break
+            if match:
+                target_jid = match['jid']
+                display_name = match.get('nickname') or target_nick
+            else:
+                bot.reply(msg, f"🔴  No user with nick '{target_nick}' is known.")
+                return
+        else:
+            target_jid, display_name = get_pm_target(sender_jid, nick)
 
-    profile_store = bot.db.users.profile()
     timezone = await profile_store.get(target_jid, "TIMEZONE")
     location = await profile_store.get(target_jid, "LOCATION")
 
@@ -125,7 +152,7 @@ async def time_command(bot, sender_jid, nick, args, msg, is_room):
     now = datetime.now(tzinfo)
     formatted = now.strftime("%Y-%m-%d %H:%M:%S")
     loc_str = f" ({location})" if location else ""
-    bot.reply(msg, f"🕒 Time for {display_name}: {formatted} ({tzone}){loc_str}", ephemeral=False)
+    bot.reply(msg, f"⏰ Time for {display_name}: {formatted} {tzone}{loc_str}", ephemeral=False)
 
 
 @command("date", role=Role.USER)

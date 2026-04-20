@@ -654,19 +654,11 @@ async def _get_profile_field(bot, sender_jid, nick, args, msg, is_room,
     """
     Helper to fetch and display a profile field for a user or nick.
     """
-    room = msg["from"].bare
-
-    if msg["type"] != "groupchat" and room not in JOINED_ROOMS.keys():
-        # DMs to the bot are not allowed
-        bot.reply(msg, "🔴 This command is not available in direct/private messages.")
-        return
-
     # 1. Room context (groupchat) or MUC PM: lookup nick in room
     user_jid = resolve_real_jid(bot, msg, is_room)
     if (is_room or _is_muc_pm(msg)) and args:
         target_nick = args[0]
         room = msg["from"].bare
-
         joined = JOINED_ROOMS.get(room, {})
         nicks = joined.get("nicks", {})
         nick_info = nicks.get(target_nick)
@@ -903,13 +895,6 @@ async def show_profile(bot, sender_jid, nick, args, msg, is_room):
         {prefix}profile
         {prefix}profile Envsi
     """
-    room = msg["from"].bare
-
-    if msg["type"] != "groupchat" and room not in JOINED_ROOMS.keys():
-        # DMs to the bot are not allowed
-        bot.reply(msg, "🔴 This command is not available in direct/private messages.")
-        return
-
     # Determine target JID and display name
     if args:
         # Try to resolve by nick in room or globally
@@ -924,7 +909,6 @@ async def show_profile(bot, sender_jid, nick, args, msg, is_room):
             )
         ):
             room = msg["from"].bare
-
             nicks = JOINED_ROOMS.get(room, {}).get("nicks", {})
             info = nicks.get(target_nick)
             if not info or not info.get("jid"):

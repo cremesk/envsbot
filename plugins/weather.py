@@ -44,28 +44,27 @@ async def weather_command(bot, sender_jid, nick, args, msg, is_room):
         {prefix}weather
         {prefix}weather <nick>
     """
-    # Multi-User Chat: get target jid from nick
-    room = msg["from"].bare
-    nicks = JOINED_ROOMS.get(room, {}).get("nicks", {})
-    if msg["type"] != "groupchat" and room not in JOINED_ROOMS.keys():
-        # DMs to the bot are not allowed
-        bot.reply(msg, "🔴 This command is not available in direct/private messages.")
-        return
-    if args:
-        target_nick = args[0]
-        info = nicks.get(target_nick)
-        if not info or not info.get("jid"):
-            bot.reply(msg, f"🔴  Nick '{target_nick}' not found in this room.")
-            return
-        target_jid = str(info["jid"])
-        display_name = target_nick
+    if is_room:
+        # Multi-User Chat: get target jid from nick
+        room = msg["from"].bare
+        nicks = JOINED_ROOMS.get(room, {}).get("nicks", {})
+        if args:
+            target_nick = args[0]
+            info = nicks.get(target_nick)
+            if not info or not info.get("jid"):
+                bot.reply(msg, f"🔴  Nick '{target_nick}' not found in this room.")
+                return
+            target_jid = str(info["jid"])
+            display_name = target_nick
+        else:
+            info = nicks.get(nick)
+            if not info or not info.get("jid"):
+                bot.reply(msg, "🔴  Could not determine your JID in this room.")
+                return
+            target_jid = str(info["jid"])
+            display_name = nick
     else:
-        info = nicks.get(nick)
-        if not info or not info.get("jid"):
-            bot.reply(msg, "🔴  Could not determine your JID in this room.")
-            return
-        target_jid = str(info["jid"])
-        display_name = nick
+        target_jid, display_name = get_pm_target(sender_jid, nick)
 
     profile_store = bot.db.users.profile()
     location = await profile_store.get(target_jid, "LOCATION")

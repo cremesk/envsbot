@@ -138,8 +138,8 @@ async def on_groupchat_message(bot, msg):
     nick = msg.get("mucnick") or msg["from"].resource
     body = msg.get("body", "").strip()
 
-    # WICHTIG: Ignoriere nur URLCHECK's eigene Replies um Loop zu verhindern
-    # Aber verarbeite URLs vom Bot (zB xkcd) TROTZDEM!
+    # IMPORTANT: Only ignore URLCHECK's own replies to prevent loops.
+    # But process URLs from the bot (e.g., xkcd) anyway!
     if body.startswith("[URL]") or body.startswith("[YOUTUBE]"):
         return
 

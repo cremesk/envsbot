@@ -254,7 +254,7 @@ class Bot(slixmpp.ClientXMPP):
         return db_role
 
     def reply(self, msg, text, mention=True, thread=True, rate_limit=True,
-              ephemeral=True):
+              ephemeral=False):
         """
         Smart reply helper for plugins.
 

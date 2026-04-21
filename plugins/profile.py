@@ -21,10 +21,11 @@ log = logging.getLogger(__name__)
 
 PLUGIN_META = {
     "name": "profile",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "description": "User profile management",
     "category": "info",
 }
+
 
 async def get_display_name(bot, jid):
     store = bot.db.users.plugin("users")
@@ -45,6 +46,7 @@ async def get_display_name(bot, jid):
         display_name
     )
     return display_name
+
 
 def resolve_real_jid(bot, msg, is_room):
     """

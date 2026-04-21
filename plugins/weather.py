@@ -17,13 +17,34 @@ log = logging.getLogger(__name__)
 
 PLUGIN_META = {
     "name": "weather_time",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "Gives weather according to users location (supports PM/DM)",
     "category": "info",
     "requires": ["rooms"],
 }
 
 log = logging.getLogger(__name__)
+
+
+async def get_display_name(bot, jid):
+    store = bot.db.users.plugin("users")
+    try:
+        roomnicks = await store.get(jid, "roomnicks")
+        for room in roomnicks or []:
+            if room:
+                display_name = roomnicks[room][0]
+                break
+    except Exception as e:
+        log.warning(
+                    "[PROFILE] 🔴  Failed to get roomnicks for %s: %s",
+                    jid, e
+        )
+        display_name = "unknown"
+    log.info(
+        "[PROFILE] 👤 Profile lookup for self: %s",
+        display_name
+    )
+    return display_name
 
 
 def get_pm_target(sender_jid, nick):
@@ -66,22 +87,27 @@ async def weather_command(bot, sender_jid, nick, args, msg, is_room):
         # Direct message: allow querying someone else by their nick, fallback to self
         if args:
             target_nick = args[0]
-            # Try to find a user by nickname in the database
-            # get_all_users returns [{jid, nickname, ...}]
-            all_users = await bot.db.users.get_all_users()
-            match = None
-            for user in all_users:
-                if user.get('nickname', '').lower() == target_nick.lower():
-                    match = user
-                    break
-            if match:
-                target_jid = match['jid']
-                display_name = match.get('nickname') or target_nick
-            else:
-                bot.reply(msg, f"🔴  No user with nick '{target_nick}' is known.")
+            # DM context: lookup globally
+            index = bot.db.users._nick_index
+            jids = index.get(target_nick, [])
+            if not jids:
+                log.warning(
+                    "[PROFILE] 🔴  Nick '%s' not found globally",
+                    target_nick
+                )
+                bot.reply(
+                    msg,
+                    f"🔴  Nick '{target_nick}' not found."
+                )
                 return
+            for jid in jids:
+                if jid:
+                    target_jid = jid
+                    break
+            display_name = target_nick
         else:
             target_jid, display_name = get_pm_target(sender_jid, nick)
+            display_name = await get_display_name(bot, target_jid)
 
     location = await profile_store.get(target_jid, "LOCATION")
     timezone = await profile_store.get(target_jid, "TIMEZONE")

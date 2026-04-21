@@ -22,12 +22,35 @@ from utils.command import command, Role
 from utils.config import config
 from plugins.rooms import JOINED_ROOMS
 
+log = logging.getLogger(__name__)
+
 PLUGIN_META = {
     "name": "tools",
-    "version": "0.1.0",
+    "version": "0.1.2",
     "description": "Utility commands: ping/pong, message echo, timezone-aware time/date lookups, and Unix timestamp conversion",
     "category": "utility",
 }
+
+
+async def get_display_name(bot, jid):
+    store = bot.db.users.plugin("users")
+    try:
+        roomnicks = await store.get(jid, "roomnicks")
+        for room in roomnicks or []:
+            if room:
+                display_name = roomnicks[room][0]
+                break
+    except Exception as e:
+        log.warning(
+                    "[PROFILE] 🔴  Failed to get roomnicks for %s: %s",
+                    jid, e
+        )
+        display_name = "unknown"
+    log.info(
+        "[PROFILE] 👤 Profile lookup for self: %s",
+        display_name
+    )
+    return display_name
 
 
 def get_pm_target(sender_jid, nick):
@@ -74,16 +97,6 @@ async def echo_command(bot, sender_jid, nick, args, msg, is_room):
     bot.reply(msg, f"🔊 {message}", ephemeral=False)
 
 
-log = logging.getLogger(__name__)
-
-def get_pm_target(sender_jid, nick):
-    if hasattr(sender_jid, "bare"):
-        bare_jid = sender_jid.bare
-    else:
-        bare_jid = str(sender_jid).split('/')[0]
-    return bare_jid, nick
-
-
 @command("time", role=Role.USER, aliases=["t"])
 async def time_command(bot, sender_jid, nick, args, msg, is_room):
     """
@@ -117,20 +130,27 @@ async def time_command(bot, sender_jid, nick, args, msg, is_room):
         # Direct message: allow querying someone else by their nick, fallback to self
         if args:
             target_nick = args[0]
-            all_users = await bot.db.users.get_all_users()
-            match = None
-            for user in all_users:
-                if user.get('nickname', '').lower() == target_nick.lower():
-                    match = user
-                    break
-            if match:
-                target_jid = match['jid']
-                display_name = match.get('nickname') or target_nick
-            else:
-                bot.reply(msg, f"🔴  No user with nick '{target_nick}' is known.")
+            # DM context: lookup globally
+            index = bot.db.users._nick_index
+            jids = index.get(target_nick, [])
+            if not jids:
+                log.warning(
+                    "[PROFILE] 🔴  Nick '%s' not found globally",
+                    target_nick
+                )
+                bot.reply(
+                    msg,
+                    f"🔴  Nick '{target_nick}' not found."
+                )
                 return
+            for jid in jids:
+                if jid:
+                    target_jid = jid
+                    break
+            display_name = target_nick
         else:
             target_jid, display_name = get_pm_target(sender_jid, nick)
+            display_name = await get_display_name(bot, target_jid)
 
     timezone = await profile_store.get(target_jid, "TIMEZONE")
     location = await profile_store.get(target_jid, "LOCATION")

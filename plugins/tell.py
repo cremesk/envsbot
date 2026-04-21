@@ -58,7 +58,7 @@ async def get_timezone(bot, jid):
     profile = await bot.db.users.profile().get(jid)
     tzname = None
     if profile and isinstance(profile, dict):
-        tzname = profile.get("timezone")
+        tzname = profile.get("TIMEZONE")
     if tzname:
         try:
             return pytz.timezone(tzname)

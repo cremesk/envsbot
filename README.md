@@ -20,7 +20,7 @@ envsbot is developed with the **envs pubnix** environment in mind, but is not li
 
 ## About
 
-envsbot is now in a usable state: the core framework is mostly stable, although probably not bug-free, supports dynamic plugin loading, and provides a structured command system. I can begin developing new plugins and features on top of it.
+envsbot is now in a usable state: the core framework is mostly stable, although probably not bug-free, supports dynamic plugin loading, and provides a structured command system. We are now developing new plugins and features on top of it.
 
 - Plugin-based architecture
 - Dynamic plugin loading/reloading
@@ -37,15 +37,19 @@ Descriptions are derived from plugin docstrings or, if needed, from code analysi
 
 - **_admin**  
   Admin management commands.  
-  _Exposes administrative commands for bot management, such as restart, shutdown, and status monitoring. Lets OWNERs restart or gracefully shut down the bot, and ADMINs view detailed resource and room/plugin/database status._
+  _Exposes administrative commands for bot management, such as restart, shutdown, and status monitoring. Lets OWNERs restart or gracefully shut down the bot, and ADMINs view detailed resource and thread status._
 
 - **_reg_profile**  
   Bot profile initialization plugin.  
   _Manages the bot’s public XMPP profile and its own database profile during startup or reload. No user commands; sets DB profile, vCard, and avatar as needed._
 
+- **birthday_notify**  
+  Birthday notification plugin.  
+  _Parses user birthday data, stores it, and automatically sends birthday notifications to users in group chats or private messages based on configured dates._
+
 - **dice**  
   Dice rolling plugin.  
-  _Roll dice with optional modifiers and success conditions, useful for games and randomization._
+  _Roll dice with optional modifiers and success conditions (e.g., `,dice 3d20 -5 >= 30`). Useful for games and randomization._
 
 - **help**  
   📚 Help system for the bot.  
@@ -63,13 +67,21 @@ Descriptions are derived from plugin docstrings or, if needed, from code analysi
   Profile management plugin.  
   _Allows users to set and display their NAME, LOCATION, TIMEZONE, BIRTHDAY, PRONOUNS, SPECIES, EMAIL, and personal URLs. Fields can be queried for yourself or others._
 
+- **reminder**  
+  Reminder system plugin.  
+  _Lets users schedule reminders (one-time or repeating) and sends reminders as private messages or group chat notices at the appropriate time._
+
 - **rooms**  
   Room management and persistence.  
-  _Administrative commands for managing XMPP MUC rooms stored in the bot's database including adding, updating, joining, and syncing rooms. Rooms may be set to autojoin._
+  _Administrative commands for managing XMPP MUC rooms stored in the bot's database, including adding, updating, joining, syncing rooms, and setting rooms to autojoin._
 
 - **rss**  
   RSS Feed watcher plugin.  
   _Checks configured RSS/Atom feeds periodically and posts updates to rooms. Allows adding, deleting, and listing feeds per room._
+
+- **sed**  
+  Substitute/replace command plugin.  
+  _Enables IRC/Slack-style “s/foo/bar/” corrections for previous messages in the same room or private conversation._
 
 - **status**  
   Bot presence and status management.  
@@ -81,7 +93,7 @@ Descriptions are derived from plugin docstrings or, if needed, from code analysi
 
 - **urlcheck**  
   URL Check plugin.  
-  _Automatic URL title and YouTube info fetching for groupchats with spam avoidance/cooldown. Moderators may enable or disable this per room._
+  _Automatic URL title and YouTube info fetching for group chats with spam avoidance/cooldown. Moderators may enable or disable this per room._
 
 - **users**  
   Users plugin.  
@@ -89,7 +101,15 @@ Descriptions are derived from plugin docstrings or, if needed, from code analysi
 
 - **weather**  
   Weather info plugin.  
-  _Shows current weather for a user’s configured location via wttr.in, supporting groupchat and private queries. (This command is now separate from time/date, which are handled by the `tools` plugin.)_
+  _Shows current weather for a user’s configured location via wttr.in, supporting group chat and private queries._
+
+- **xkcd**  
+  XKCD comic plugin.  
+  _Fetches and displays XKCD web comics and explanations for given comic numbers or random selections._
+
+- **xmpp**  
+  XMPP protocol extension plugin.  
+  Handles protocol-specific actions, possibly including advanced XMPP commands, pubsub, message carbons, or XMPP integration features for core bot or plugin functionality.
 
 ---
 

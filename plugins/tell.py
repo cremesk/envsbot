@@ -11,6 +11,7 @@ Supports nicks with spaces. Command format: {prefix}tell <nick with spaces>: <me
 import datetime
 import pytz
 import logging
+import asyncio
 from functools import partial
 
 from utils.command import command, Role
@@ -145,6 +146,7 @@ async def deliver_tell_messages(bot, msg):
             tzinfo
         )
         timestr = when.strftime("%a, %d %b %H:%M %Z")
+        await asyncio.sleep(1)  # slight delay to avoid flooding on join
         bot.reply(
             {
                 "from": msg["from"],

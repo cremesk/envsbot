@@ -33,6 +33,7 @@ PLUGIN_META = {
 
 
 async def get_display_name(bot, jid):
+    display_name = ""
     store = bot.db.users.plugin("users")
     try:
         roomnicks = await store.get(jid, "roomnicks")
@@ -46,10 +47,7 @@ async def get_display_name(bot, jid):
                     jid, e
         )
         display_name = "unknown"
-    log.info(
-        "[PROFILE] 👤 Profile lookup for self: %s",
-        display_name
-    )
+    log.info("[PROFILE] 👤 Profile lookup for self: %s", display_name)
     return display_name
 
 

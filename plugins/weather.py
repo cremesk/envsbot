@@ -1,7 +1,7 @@
-# plugins/weather_time.py
-
 """
-Info plugin: Show the current weather for a user's configured profile.
+Info plugin: Show the current weather for a user's location configured in
+their vCard. Only works in groupchats or MUC DMs where the user has a vCard
+with a LOCATION field.
 
 Commands:
     {prefix}weather [nick]
@@ -20,7 +20,8 @@ log = logging.getLogger(__name__)
 PLUGIN_META = {
     "name": "weather",
     "version": "0.3.0",
-    "description": "Gives weather according to users location (supports PM/DM)",
+    "description": ("Gives weather according to users location (supports MUCs"
+                    "and MUC DMs)"),
     "category": "info",
     "requires": ["rooms", "vcard"],
 }
@@ -76,7 +77,11 @@ async def get_weather_store(bot):
 @command("weather", role=Role.USER, aliases=["w"])
 async def weather_command(bot, sender_jid, nick, args, msg, is_room):
     """
-    Show the current weather for your configured location or another user's location.
+    Show the current weather for a users location set in their vCard. If
+    the <nick> is omitted, your own location according to your vCard is
+    used. Only works in groupchats or MUC DMs where the user has a vCard
+    with a LOCATION and/or COUNTRY (CTRY) field set (must be public).
+
     Usage:
         {prefix}weather
         {prefix}weather <on|off|status>
@@ -103,7 +108,8 @@ async def weather_command(bot, sender_jid, nick, args, msg, is_room):
     vcard = {}
     display_name = ""
     if is_room:
-        log.info(f"[WEATHER] Command invoked in room {msg['from'].bare} by {nick} with args: {args}")
+        log.info((f"[WEATHER] Command invoked in room {msg['from'].bare} by"
+                 f"{nick} with args: {args}"))
         muc_jid = msg["from"].bare
         if muc_jid not in enabled_rooms:
             return
@@ -111,8 +117,18 @@ async def weather_command(bot, sender_jid, nick, args, msg, is_room):
         if args:
             target_nick = " ".join(args).strip()
             if target_nick not in nicks:
-                log.info(f"[WEATHER] Lookup failed: Nick '{target_nick}' not found in room {muc_jid}")
+                log.info((f"[WEATHER] Lookup failed: Nick '{target_nick}'"
+                         f"not found in room {muc_jid}"))
                 bot.reply(msg, f"🔴  Nick '{target_nick}' not found in this room.")
+                return
+            display_name, vcard = await get_info(bot, msg, target_nick)
+            if vcard is None:
+                return
+        else:
+            target_nick = msg["from"].resource
+            if target_nick not in nicks:
+                log.info(f"[WEATHER] Lookup failed: Nick '{target_nick}' not found in room {muc_jid}")
+                bot.reply(msg, f"🔴  Your Nick '{target_nick}' was not found in this room.")
                 return
             display_name, vcard = await get_info(bot, msg, target_nick)
             if vcard is None:
@@ -136,19 +152,7 @@ async def weather_command(bot, sender_jid, nick, args, msg, is_room):
 
         log.info(f"[VCARD] vCard for '{target_nick}' ({muc_jid}) received (never real jid!).")
     else:
-        # # Direct message: allow querying someone else by their nick, fallback to self
-        # if args:
-        #     log.info(f"[WEATHER] Command invoked in DM by {nick} with args: {args}")
-        #     target_nick = " ".join(args).strip()
-        # else:
-        #     log.info(f"[WEATHER] No target nick provided in DM, using sender's nick '{nick}' for lookup.")
-        #     target_nick = msg["from"].resource
-        # # DM context: lookup globally
-        # display_name, vcard = await get_info(bot, msg, target_nick)
-        # if vcard is None:
-        #     return
-
-        # log.info(f"[VCARD] vCard for '{target_nick}' received (never real jid!).")
+        # DM Weather requests not allowed!
         log.info(f"[WEATHER] Command invoked in DM by {nick} with args: {args}")
         bot.reply(msg, "🔴  Weather command is only available in groupchats or MUC DMs.")
         return
@@ -163,7 +167,7 @@ async def weather_command(bot, sender_jid, nick, args, msg, is_room):
     else:
         location = ""
 
-    log.info(f"[WEATHER] Location for {display_name} ({target_nick}): {location}")
+    log.info(f"[WEATHER] Location for {display_name}: {location}")
 
     if not location or location.strip() == "":
         bot.reply(

@@ -1,10 +1,10 @@
 """
 Profile management plugin.
 
-This plugin allows users to set their FULLNAME, LOCATION, TIMEZONE, BIRTHDAY,
-PRONOUNS, SPECIES, EMAIL, and manage up to 6 URLs with descriptions in their
-profile. It also allows querying some of these fields for yourself or another
-user in a room by nickname.
+This plugin allows users to request the Fullname, Nicknames, Birthday, Notes,
+Organisations and URLs from their own or others vCard (if public).
+
+It also allows users to set their timezone, which is not supported by vCards.
 """
 
 import slixmpp
@@ -25,7 +25,7 @@ PLUGIN_META = {
     "version": "0.1.3",
     "description": "User profile management",
     "category": "info",
-    "requires": ["vcard"],
+    "requires": ["vcard", "rooms"],
 }
 
 
@@ -84,17 +84,18 @@ async def _unset_field(bot, jid, field_name, label, msg):
     bot.reply(msg, f"🗑️ {label} removed.")
 
 
-@command("config timezone", role=Role.USER, aliases=["c timezone"])
+@command("timezone set", role=Role.USER, aliases=["tz set"])
 async def set_timezone(bot, sender_jid, nick, args, msg, is_room):
     """
     Set your TIMEZONE in Linux format eg. for '{prefix}time [nick]' command.
 
     Usage:
-        {prefix}config timezone <timezone>
-        {prefix}c timezone <timezone>
+        {prefix}timezone set <timezone>
+        {prefix}tz set <timezone>
 
     Example:
-        {prefix}config timezone Europe/Berlin
+        {prefix}timezone set Europe/Berlin
+        {prefix}tz set Alaska/Anchorage
     """
     jid = resolve_real_jid(bot, msg, is_room)
     log.info("[PROFILE] ✅ set_timezone called by %s", jid)
@@ -192,7 +193,7 @@ async def set_birthday(bot, sender_jid, nick, args, msg, is_room):
 @command("fullname", role=Role.USER, aliases=["f"])
 async def get_fullname(bot, sender_jid, nick, args, msg, is_room):
     """
-    Show the FULLNAME of a user.
+    Show the FULLNAME of a user from their vCard.
 
     Usage:
         {prefix}fullname [nick]
@@ -334,7 +335,7 @@ async def _format_profile_field_for_nick(field, label, values,
 async def _get_profile_field(bot, sender_jid, nick, args, msg, is_room,
                              field, label):
     """
-    Helper to fetch and display a profile field for a user or nick.
+    Helper to fetch and display a profile field for a user nick.
     """
     # 1. Room context (groupchat) or MUC PM: lookup nick in room
     if (is_room or _is_muc_pm(msg)) and args:
@@ -363,46 +364,66 @@ async def _get_profile_field(bot, sender_jid, nick, args, msg, is_room,
                         field, target_nick)
             bot.reply(msg, f"ℹ️ No {label} set for nick '{args[0]}'.")
             return
-        if field in ["URL", "NICKNAME", "ORG", "NOTE", "EMAIL"]:
+        if field in ["FULLNAME", "BDAY", "URL", "NICKNAME", "ORG",
+                     "NOTE", "EMAIL"]:
             lines = await _format_profile_field_for_nick(field, label,
                                                         vcard[field],
                                                         display_name,
-                                                       [room])
+                                                        [room])
             bot.reply(msg, lines)
+        return
+    # 2. Request own vCard information
+    elif (is_room or _is_muc_pm(msg)) and not args:
+        target_nick = msg["from"].resource
+        room = msg["from"].bare
+        joined = JOINED_ROOMS.get(room, {})
+        nicks = joined.get("nicks", {})
+        nick_info = nicks.get(target_nick)
+        if not nick_info:
+            log.warning("[PROFILE] 🔴  Nick '%s' not found in room '%s'",
+                        target_nick, room)
+            bot.reply(msg, f"🔴  Your Nick '{target_nick}' not found in this room.")
+            return
+        _, vcard = await get_info(bot, msg, target_nick)
+        if vcard[field] is None:
+            log.warning("[PROFILE] 🔴  No vCard field '%s' for nick '%s' in room '%s'",
+                        label, target_nick, room)
+            bot.reply(msg, f"🔴  No {label} found in vCard for nick '{target_nick}'.")
+            return
+        display_name = target_nick
+        value = vcard[field]
+        log.info(f"[PROFILE] {sender_jid} looking up {field} for"
+                 f"'{target_nick}'")
+        if value is None or value == "" or value == []:
+            log.warning("[PROFILE] 🔴  No %s for requested user '%s'",
+                        field, target_nick)
+            bot.reply(msg, f"ℹ️ No {label} set for nick '{args[0]}'.")
+            return
+        if field in ["FULLNAME", "BDAY", "URL", "NICKNAME", "ORG",
+                     "NOTE", "EMAIL"]:
+            lines = await _format_profile_field_for_nick(field, label,
+                                                        vcard[field],
+                                                        display_name,
+                                                        [room])
+            bot.reply(msg, lines)
+
         else:
             bot.reply(msg, f"{label} for {display_name}: {value}")
         return
 
     # 2. Direct message to bot JID: lookup nick globally, group by JID/rooms
-    elif not is_room and not _is_muc_pm(msg):
+    else:
         bot.reply(msg, "🔴 Please use this command in a room or MUC PM.")
         log.warning("[PROFILE] 🔴  Command used outside of room/MUC PM by %s",
                     sender_jid)
         return
 
-    # 3. No args: use requesting user
-    else:
-        display_name = msg["from"].resource or nick
-        log.info(f"[PROFILE] {display_name} looking up {field} for"
-                 f" '{target_nick}'")
-        if value is None or value == "" or value == []:
-            log.warning("[PROFILE] 🔴  No %s for requested user '%s'",
-                        field, target_nick)
-            bot.reply(msg, f"ℹ️ No {label} set for this user.")
-            return
-        if field in ["URL", "NICKNAME", "ORG", "NOTE", "EMAIL"]:
-            lines = await _format_profile_field_for_nick(field, label,
-                                                        vcard[field],
-                                                        display_name, [room])
-            bot.reply(msg, lines)
-        else:
-            bot.reply(msg, f"{label} for {display_name}: {value}")
-
 
 @command("birthday", role=Role.USER, aliases=["b"])
 async def get_birthday(bot, sender_jid, nick, args, msg, is_room):
     """
-    Show the BIRTHDAY of a user and days until next birthday.
+    Show the BIRTHDAY of a user and days until next birthday from their vCard.
+
     Usage:
         {prefix}birthday [nick]
         {prefix}b [nick]
@@ -418,6 +439,16 @@ async def get_birthday(bot, sender_jid, nick, args, msg, is_room):
         nick_info = nicks.get(target_nick)
         if not nick_info:
             bot.reply(msg, f"🔴  Nick '{target_nick}' not found in this room.")
+            return
+        display_name = target_nick
+    elif (is_room or _is_muc_pm(msg)) and not args:
+        target_nick = msg["from"].resource
+        room = msg["from"].bare
+        joined = JOINED_ROOMS.get(room, {})
+        nicks = joined.get("nicks", {})
+        nick_info = nicks.get(target_nick)
+        if not nick_info:
+            bot.reply(msg, f"🔴  Your Nick '{target_nick}' not found in this room.")
             return
         display_name = target_nick
     else:
@@ -461,7 +492,7 @@ async def get_birthday(bot, sender_jid, nick, args, msg, is_room):
 @command("config unset", role=Role.USER, aliases=["c unset"])
 async def unset_field(bot, sender_jid, nick, args, msg, is_room):
     """
-    Unset (clear) a profile field.
+    Unset (clear) a profile field from the bots database.
 
     Usage:
         {prefix}config unset <field>

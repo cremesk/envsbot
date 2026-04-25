@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 PLUGIN_META = {
     "name": "profile",
-    "version": "0.1.3",
+    "version": "0.2.0",
     "description": "User profile management",
     "category": "info",
     "requires": ["vcard", "rooms"],
@@ -35,7 +35,7 @@ def resolve_real_jid(bot, msg, is_room):
     muc = bot.plugin.get("xep_0045", None)
     if muc:
         room = msg['from'].bare
-        nick = msg.get("mucnick") or msg["from"].resource
+        nick = msg["from"].resource
         jid = muc.get_jid_property(room, nick, "jid")
     if jid is None:
         jid = msg["from"]

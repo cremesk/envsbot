@@ -1,20 +1,29 @@
 """
 vCard Lookup Plugin
 
-Command: {prefix}vcard <nick>
-Look up the vCard for a user by MUC nick (using only the MUC JID).
+This plugin allows users to request the fullname, nicknames, birthday,
+notes, organisations and urls from their own or others vCard (if public).
 
-- Only available in groupchats or MUC PMs.
-- Only uses the MUC JID (nick@room), never the real JID!
-- Never displays or logs the user's real JID.
+The only exception is the "timezone", which has to be set explicitly with the
+"{prefix}tz set <IANA timezone>".
+
+You can get your own timezone from the list at:
+https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+Use the "TZ identiier" from the list.
+
+The weather plugin now uses the "LOCATION" and/or "CTRY" (country) fields from
+your vCard to determine the location for weather reports, if set. If you have
+more than one address the first one found will be used.
 """
 
 import logging
 import textwrap
+import pytz
 import datetime
 import urllib
-from xml.etree import ElementTree as ET
+import slixmpp
 from utils.command import command, Role
+from utils.config import config
 from plugins.rooms import JOINED_ROOMS
 from utils.plugin_helper import handle_room_toggle_command
 
@@ -22,7 +31,7 @@ VCARD_KEY = "VCARD"
 
 PLUGIN_META = {
     "name": "vcard",
-    "version": "0.2.1",
+    "version": "0.3.0",
     "description": "Lookup and display vCard of a MUC occupant by MUC JID only",
     "category": "info",
     "requires": ["rooms"],
@@ -41,8 +50,106 @@ def _is_muc_pm(msg):
     )
 
 
+def resolve_real_jid(bot, msg, is_room):
+    """
+    Resolve the real sender JID in all contexts (groupchat, MUC PM, or DM).
+    """
+    jid = None
+    muc = bot.plugin.get("xep_0045", None)
+    if muc:
+        room = msg['from'].bare
+        nick = msg["from"].resource
+        log.debug("[VCARD] Resolving real JID for room: %s, nick: %s",
+                  room, nick)
+        jid = muc.get_jid_property(room, nick, "jid")
+    if jid is None:
+        jid = msg["from"]
+    return str(slixmpp.JID(jid).bare)
+
+
+async def get_real_jid_from_nick(bot, nick):
+    """Look up the real JID of a nick from the UserManager's _nick_index."""
+    idx = getattr(bot.db.users, "_nick_index", {})
+    value = idx.get(nick)
+    if isinstance(value, set):
+        return next(iter(value), None)
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value or None
+
+
+async def _check_user_exists(bot, sender_jid, msg):
+    """
+    Check if the user exists in the database.
+
+    Args:
+        bot: The bot instance.
+        sender_jid: The JID to check.
+        msg: The message object.
+
+    Returns:
+        bool: True if user exists, False otherwise.
+    """
+    jid = str(sender_jid)
+    user = await bot.db.users.get(jid)
+    if not user:
+        log.warning(
+            "[VCARD] 🔴  Unregistered user tried to use config: %s", jid
+        )
+        bot.reply(msg, "🔴  You are not a registered user.")
+        return False
+    return True
+
+
+@command("timezone set", role=Role.USER, aliases=["tz set"])
+async def set_timezone(bot, sender_jid, nick, args, msg, is_room):
+    """
+    Set your TIMEZONE in Linux format eg. for '{prefix}time [nick]' command.
+
+    Usage:
+        {prefix}timezone set <timezone>
+        {prefix}tz set <timezone>
+
+    Example:
+        {prefix}timezone set Europe/Berlin
+        {prefix}tz set Alaska/Anchorage
+    """
+    jid = resolve_real_jid(bot, msg, is_room)
+    log.info("[VCARD] ✅ set_timezone called by %s", jid)
+    if not await _check_user_exists(bot, jid, msg):
+        return
+    if not args or len(args) != 1:
+        log.warning("[VCARD] 🔴  TIMEZONE missing/invalid args for %s",
+                    jid)
+        bot.reply(
+            msg,
+            f"🟡️ Usage: {config.get('prefix', ',')}tz set <timezone>",
+        )
+        return
+    timezone = args[0].strip()
+    try:
+        if timezone not in pytz.all_timezones:
+            raise ValueError
+    except Exception:
+        log.warning("[VCARD] 🔴  Invalid timezone for %s: %s", jid,
+                    timezone)
+        bot.reply(
+            msg,
+            "🟡️ Invalid timezone. Use a valid IANA timezone, "
+            "e.g. Europe/Berlin.",
+        )
+        return
+    store = await get_vcard_store(bot)
+    await store.set(str(jid), "TIMEZONE", timezone)
+    log.info("[VCARD] ✅ TIMEZONE set for %s: %s", jid, timezone)
+    bot.reply(msg, f"✅ TIMEZONE set to: {timezone}")
+
+
 async def _format_profile_field_for_nick(field, label, values,
-                                        display_name, rooms=None):
+                                         display_name, rooms=None):
+    def indent_lines(lines, indent="    "):
+        return [lines[0]] + [indent + l if l.strip() else l for l in lines[1:]]
+
     if field == "URL":
         lines = []
         if rooms:
@@ -55,7 +162,7 @@ async def _format_profile_field_for_nick(field, label, values,
         else:
             lines.append("    • —")
         return lines
-    elif field in ["URL", "EMAIL", "NICKNAME", "ORG", "NOTE"]:
+    elif field in ["EMAIL", "NICKNAME", "ORG", "NOTE"]:
         lines = []
         if rooms:
             lines.append(f"{label} - {display_name} in {', '.join(rooms)}:")
@@ -63,17 +170,39 @@ async def _format_profile_field_for_nick(field, label, values,
             lines.append(f"{label} - {display_name}:")
         if values and isinstance(values, list):
             for v in values:
-                lines.append(f"    • {v}")
+                if field == "NOTE":
+                    # Preserve newlines in notes, wrap and indent 
+                    # each paragraph after the bullet
+                    note_paragraphs = v.splitlines() or [""]
+                    for i, para in enumerate(note_paragraphs):
+                        wrapped = textwrap.wrap(para, width=70)
+                        if not wrapped:
+                            wrapped = [""]
+                        for j, line in enumerate(wrapped):
+                            if i == 0 and j == 0:
+                                lines.append(f"    • {line}")
+                            else:
+                                lines.append(f"      {line}")
+                else:
+                    lines.append(f"    • {v}")
         else:
             lines.append("    • —")
         return lines
     else:
-        if values is None or values == "" or values == []:
-            values = "—"
+        # For any other field, output the value(s) in a readable way
+        lines = []
         if rooms:
-            return [f"{label} - {display_name} in {', '.join(rooms)}: {values}"]
+            lines.append(f"{label} - {display_name} in {', '.join(rooms)}:")
         else:
-            return [f"{label} - {display_name}: {values}"]
+            lines.append(f"{label} - {display_name}:")
+        if values is None or values == "" or values == []:
+            lines.append("    • —")
+        elif isinstance(values, list):
+            for v in values:
+                lines.append(f"    • {v}")
+        else:
+            lines.append(f"    • {values}")
+        return lines
 
 
 async def _get_profile_field(bot, sender_jid, nick, args, msg, is_room,
@@ -89,29 +218,35 @@ async def _get_profile_field(bot, sender_jid, nick, args, msg, is_room,
         nicks = joined.get("nicks", {})
         nick_info = nicks.get(target_nick)
         if not nick_info:
-            log.warning("[PROFILE] 🔴  Nick '%s' not found in room '%s'",
+            log.warning("[VCARD] 🔴  Nick '%s' not found in room '%s'",
                         target_nick, room)
             bot.reply(msg, f"🔴  Nick '{target_nick}' not found in this room.")
             return
-        _, vcard = await get_info(bot, msg, target_nick)
-        if vcard[field] is None:
-            log.warning("[PROFILE] 🔴  No vCard field '%s' for nick '%s' in room '%s'",
+        if field == "TIMEZONE":
+            store = bot.db.users.plugin("vcard")
+            jid = JOINED_ROOMS.get(room, {}).get("nicks", {}).get(target_nick, {}).get("jid")
+            value = await store.get(str(jid), "TIMEZONE")
+            log.info(f"[VCARD] TIMEZONE lookup for nick '{target_nick}' with JID '{jid}' in room '{room}': {value}")
+        else:
+            _, vcard = await get_info(bot, msg, target_nick)
+            value = vcard[field]
+        if value is None or value == "" or value == []:
+            log.warning("[VCARD] 🔴  No vCard field '%s' for nick '%s' in room '%s'",
                         label, target_nick, room)
             bot.reply(msg, f"🔴  No {label} found in vCard for nick '{target_nick}'.")
             return
         display_name = target_nick
-        value = vcard[field]
-        log.info(f"[PROFILE] {sender_jid} looking up {field} for"
+        log.info(f"[VCARD] {sender_jid} looking up {field} for"
                  f"'{target_nick}'")
         if value is None or value == "" or value == []:
-            log.warning("[PROFILE] 🔴  No %s for requested user '%s'",
+            log.warning("[VCARD] 🔴  No %s for requested user '%s'",
                         field, target_nick)
             bot.reply(msg, f"ℹ️ No {label} set for nick '{target_nick}'.")
             return
-        if field in ["URL", "NICKNAME", "ORG",
-                     "NOTE", "EMAIL"]:
+        if field in ["FN", "NICKNAME", "BDAY", "TIMEZONE", "URL", "NICKNAME",
+                     "ORG", "NOTE", "EMAIL"]:
             lines = await _format_profile_field_for_nick(field, label,
-                                                        vcard[field],
+                                                        value,
                                                         display_name,
                                                         [room])
             bot.reply(msg, lines)
@@ -124,29 +259,34 @@ async def _get_profile_field(bot, sender_jid, nick, args, msg, is_room,
         nicks = joined.get("nicks", {})
         nick_info = nicks.get(target_nick)
         if not nick_info:
-            log.warning("[PROFILE] 🔴  Nick '%s' not found in room '%s'",
+            log.warning("[VCARD] 🔴  Nick '%s' not found in room '%s'",
                         target_nick, room)
             bot.reply(msg, f"🔴  Your Nick '{target_nick}' not found in this room.")
             return
-        _, vcard = await get_info(bot, msg, target_nick)
-        if vcard[field] is None:
-            log.warning("[PROFILE] 🔴  No vCard field '%s' for nick '%s' in room '%s'",
-                        label, target_nick, room)
-            bot.reply(msg, f"🔴  No {label} found in vCard for nick '{target_nick}'.")
-            return
+        if field == "TIMEZONE":
+            store = bot.db.users.plugin("vcard")
+            jid = resolve_real_jid(bot, msg, is_room)
+            value = await store.get(str(jid), "TIMEZONE")
+        else:
+            _, vcard = await get_info(bot, msg, target_nick)
+            if vcard[field] is None:
+                log.warning("[VCARD] 🔴  No vCard field '%s' for nick '%s' in room '%s'",
+                            label, target_nick, room)
+                bot.reply(msg, f"🔴  No {label} found in vCard for nick '{target_nick}'.")
+                return
+            value = vcard[field]
         display_name = target_nick
-        value = vcard[field]
-        log.info(f"[PROFILE] {sender_jid} looking up {field} for"
+        log.info(f"[VCARD] {sender_jid} looking up {field} for"
                  f"'{target_nick}'")
         if value is None or value == "" or value == []:
-            log.warning("[PROFILE] 🔴  No %s for requested user '%s'",
+            log.warning("[VCARD] 🔴  No %s for requested user '%s'",
                         field, target_nick)
             bot.reply(msg, f"ℹ️ No {label} set for nick '{target_nick}'.")
             return
-        if field in ["URL", "NICKNAME", "ORG",
-                     "NOTE", "EMAIL"]:
+        if field in ["FN", "NICKNAME", "BDAY", "TIMEZONE", "URL", "NICKNAME",
+                     "ORG", "NOTE", "EMAIL"]:
             lines = await _format_profile_field_for_nick(field, label,
-                                                        vcard[field],
+                                                        value,
                                                         display_name,
                                                         [room])
             bot.reply(msg, lines)
@@ -158,7 +298,7 @@ async def _get_profile_field(bot, sender_jid, nick, args, msg, is_room,
     # 2. Direct message to bot JID: lookup nick globally, group by JID/rooms
     else:
         bot.reply(msg, "🔴 Please use this command in a room or MUC PM.")
-        log.warning("[PROFILE] 🔴  Command used outside of room/MUC PM by %s",
+        log.warning("[VCARD] 🔴  Command used outside of room/MUC PM by %s",
                     sender_jid)
         return
 
@@ -298,13 +438,18 @@ def _format_vcard_reply(vcard, nick, muc_jid):
         lines.append("")
         c["NOTE"] = notes
     for note in notes:
-        wrapped = textwrap.fill(
-            note,
-            width=70,
-            initial_indent="• Note: ",
-            subsequent_indent="        "
-        )
-        lines.append(wrapped)
+        note_paragraphs = note.splitlines() or [""]
+        first_line = True
+        for para in note_paragraphs:
+            wrapped = textwrap.wrap(para, width=70)
+            if not wrapped:
+                wrapped = [""]
+            for i, line in enumerate(wrapped):
+                if first_line:
+                    lines.append(f"• Note: {line}")
+                    first_line = False
+                else:
+                    lines.append(f"        {line}")
 
     # Multiple emails support
     c["EMAIL"] = []
@@ -389,6 +534,20 @@ async def vcard_command(bot, sender_jid, sender_nick, args, msg, is_room):
             return
 
         lines, vcard = _format_vcard_reply(vcard, target_nick, muc_jid)
+
+        # add Timezone from DB if available
+        store = await get_vcard_store(bot)
+        timezone = None
+        if args:
+            jid = JOINED_ROOMS.get(muc_jid, {}).get("nicks", {}).get(target_nick, {}).get("jid")
+            if jid:
+                timezone = await store.get(str(jid), "TIMEZONE")
+        else:
+            timezone = await store.get(resolve_real_jid(bot, msg, is_room), "TIMEZONE")
+        if timezone:
+            lines.append("")  # Blank line before timezone
+            lines.append(f"• Timezone: {timezone}")
+
         bot.reply(msg, lines)
         log.info(f"[VCARD] vCard for '{target_nick}': {vcard}")
         log.info(f"[VCARD] vCard for '{target_nick}' ({muc_jid}) sent (never real jid!).")
@@ -427,6 +586,22 @@ async def get_nicknames(bot, sender_jid, nick, args, msg, is_room):
     await _get_profile_field(bot, sender_jid, nick, args, msg, is_room,
                              "NICKNAME", "Nicknames")
 
+
+@command("timezone", role=Role.USER, aliases=["tz"])
+async def get_timezone(bot, sender_jid, nick, args, msg, is_room):
+    """
+    Show the TIMEZONE of a user from their DB entry (TZ not available
+    on vCard).
+
+    Usage:
+        {prefix}timezone [nick]
+        {prefix}tz [nick]
+
+    Example:
+        {prefix}timezone Envsi
+    """
+    await _get_profile_field(bot, sender_jid, nick, args, msg, is_room,
+                             "TIMEZONE", "Timezone")
 
 @command("organisations", role=Role.USER, aliases=["orgs"])
 async def get_organisations(bot, sender_jid, nick, args, msg, is_room):
@@ -526,7 +701,7 @@ async def get_birthday(bot, sender_jid, nick, args, msg, is_room):
     else:
         display_name = msg["from"].resource or nick
         bot.reply(msg, "🔴 Please use this command in a room or MUC PM.")
-        log.warning("[PROFILE] 🔴  Command used outside of room/MUC PM by %s",
+        log.warning("[VCARD] 🔴  Command used outside of room/MUC PM by %s",
                     display_name)
         return
 

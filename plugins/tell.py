@@ -56,10 +56,10 @@ async def get_real_jid(bot, nick):
 
 async def get_timezone(bot, jid):
     """Get the user's timezone from their profile, fallback to UTC."""
-    profile = await bot.db.users.profile().get(jid)
+    store = await bot.db.users.plugin("vcard")
     tzname = None
-    if profile and isinstance(profile, dict):
-        tzname = profile.get("TIMEZONE")
+    if store:
+        tzname = store.get(jid, "TIMEZONE")
     if tzname:
         try:
             return pytz.timezone(tzname)

@@ -374,3 +374,23 @@ async def on_load(bot):
     bot.register_plugin("xep_0084")
 
     await setup_profile(bot)
+
+
+async def on_ready(bot):
+    """
+    Placeholder for any actions that should be taken when the bot is fully ready.
+
+    Parameters
+    ----------
+    bot : Bot
+        The main bot instance.
+
+    Notes
+    -----
+    Currently, this function does not perform any actions. It can be used in
+    the future for tasks that need to run after all plugins are loaded and the
+    bot is fully operational.
+    """
+    # Set timezone on startup from config file
+    store = bot.db.users.plugin("vcard")
+    await store.set(str(bot.boundjid.bare), "TIMEZONE", config.get("timezone", "UTC"))

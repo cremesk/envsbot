@@ -5,6 +5,7 @@
   "jid": "bluebot@domain.tld",
   "password": "<password>",
   "nick": "bluebot",
+  "timezone": "Europe/Berlin",
 
   "_comment2": "The 'owner' key holds the bare XMPP JID of the allmighty owner of the bot for administration",
   "owner": "<owner>@domain.tld",

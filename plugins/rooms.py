@@ -39,6 +39,7 @@ JOINED_ROOMS = {}
 PLUGIN_DEFAULTS = {
     "help": False,
     "birthday_notify": False,
+    "tell": True,
     "sed": True,
     "urlcheck": True,
     "vcard": True,
@@ -49,6 +50,7 @@ PLUGIN_DEFAULTS = {
 PLUGIN_STORE_CONFIG = {
     "help": {"type": "dict", "key": "HELP"},
     "birthday_notify": {"type": "dict", "key": "birthday_notify_enabled_rooms"},
+    "tell": {"type": "dict", "key": "TELL"},
     "sed": {"type": "dict", "key": "SED"},
     "urlcheck": {"type": "dict", "key": "URLCHECK"},
     "vcard": {"type": "dict", "key": "VCARD"},

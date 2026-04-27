@@ -29,6 +29,7 @@ from utils.command import command, Role
 from utils.config import config
 from plugins.rooms import JOINED_ROOMS
 from utils.plugin_helper import handle_room_toggle_command
+from plugins.vcard import vcard_field
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ PLUGIN_META = {
     "version": "1.0.2",
     "description": "🎂 Automatic birthday notifications in rooms (opt-in per room)",
     "category": "fun",
-    "requires": ["rooms", "profile"],
+    "requires": ["rooms"],
 }
 
 # Track which birthdays we've announced today: {jid: date_str}
@@ -150,12 +151,16 @@ async def _check_user_birthday(bot, user_jid_str: str, nick: str, room_jid):
     """
     try:
         today_str = datetime.date.today().isoformat()
-        profile_store = bot.db.users.profile()
         store = bot.db.users.plugin("birthday_notify")
+
+        msg = bot.make_message(mfrom=room_jid,
+                               mto=bot.boundjid.bare,
+                               mtype="chat",
+                               mbody="None")
 
         # Load from DB if not in memory
         if user_jid_str not in ANNOUNCED_TODAY:
-            announced_date = await store.get(user_jid_str, "announced_date")
+            announced_date = await vcard_field(bot, msg, nick, "BDAY")
             if announced_date:
                 ANNOUNCED_TODAY[user_jid_str] = announced_date
 
@@ -164,7 +169,7 @@ async def _check_user_birthday(bot, user_jid_str: str, nick: str, room_jid):
             return
 
         # Get user's birthday from profile
-        birthday = await profile_store.get(user_jid_str, "BIRTHDAY")
+        birthday = await vcard_field(bot, msg, nick, "BDAY")
         if not birthday:
             return
 

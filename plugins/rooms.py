@@ -44,7 +44,7 @@ PLUGIN_DEFAULTS = {
     "urlcheck": True,
     "vcard": True,
     "weather": True,
-#    "xkcd": True,
+    "xkcd": False,
     "xmpp": True,
 }
 PLUGIN_STORE_CONFIG = {
@@ -55,7 +55,7 @@ PLUGIN_STORE_CONFIG = {
     "urlcheck": {"type": "dict", "key": "URLCHECK"},
     "vcard": {"type": "dict", "key": "VCARD"},
     "weather": {"type": "dict", "key": "WEATHER"},
-#    "xkcd": {"type": "dict", "key": "XKCD"},
+    "xkcd": {"type": "dict", "key": "XKCD"},
     "xmpp": {"type": "dict", "key": "XMPP"},
 }
 # ------------------------------------------------

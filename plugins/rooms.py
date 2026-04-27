@@ -38,20 +38,22 @@ JOINED_ROOMS = {}
 # ------------------------------------------------
 PLUGIN_DEFAULTS = {
     "help": False,
+    "birthday_notify": False,
     "sed": True,
     "urlcheck": True,
     "vcard": True,
     "weather": True,
-    "xkcd": True,
+#    "xkcd": True,
     "xmpp": True,
 }
 PLUGIN_STORE_CONFIG = {
     "help": {"type": "dict", "key": "HELP"},
+    "birthday_notify": {"type": "dict", "key": "birthday_notify_enabled_rooms"},
     "sed": {"type": "dict", "key": "SED"},
     "urlcheck": {"type": "dict", "key": "URLCHECK"},
     "vcard": {"type": "dict", "key": "VCARD"},
     "weather": {"type": "dict", "key": "WEATHER"},
-    "xkcd": {"type": "dict", "key": "XKCD"},
+#    "xkcd": {"type": "dict", "key": "XKCD"},
     "xmpp": {"type": "dict", "key": "XMPP"},
 }
 # ------------------------------------------------

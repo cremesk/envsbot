@@ -109,13 +109,13 @@ async def urlcheck_command(bot, sender_jid, nick, args, msg, is_room):
 
 async def on_groupchat_message(bot, msg):
     room = msg["from"].bare
-    nick = msg.get("mucnick") or msg["from"].resource
+    nick = msg.get("mucnick")
     body = msg.get("body", "").strip()
 
     # ==== Prevent processing own messages ====
     try:
         bot_nick = JOINED_ROOMS[room]["nick"]
-        if bot_nick == nick:
+        if bot_nick == nick or bot_nick == msg["from"].resource:
             return
     except KeyError:
         return

@@ -533,9 +533,7 @@ async def vcard_command(bot, sender_jid, sender_nick, args, msg, is_room):
     """
     Look up the vCard of a user by MUC nick (MUC JID only), never real JID!
 
-    Usage: {prefix}vcard <nick>
-    Only available in groupchats or MUC DMs, and only for nicks present in
-    this room.
+    Usage: {prefix}vcard [<nick>|on|off|status]
     """
 
     handled = await handle_room_toggle_command(

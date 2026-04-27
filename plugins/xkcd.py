@@ -405,8 +405,8 @@ async def xkcd_command(bot, sender_jid, nick, args, msg, is_room):
         store_getter=get_xkcd_store,
         key=XKCD_KEY,
         label="XKCD posting",
-        storage="list",
-        list_field="rooms",
+        storage="dict",
+        # list_field="rooms",
         log_prefix="[XKCD]",
     ):
         return

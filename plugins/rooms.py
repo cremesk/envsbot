@@ -49,7 +49,7 @@ PLUGIN_DEFAULTS = {
 }
 PLUGIN_STORE_CONFIG = {
     "help": {"type": "dict", "key": "HELP"},
-    "birthday_notify": {"type": "dict", "key": "birthday_notify_enabled_rooms"},
+    "birthday_notify": {"type": "dict", "key": "birthday_notify"},
     "tell": {"type": "dict", "key": "TELL"},
     "sed": {"type": "dict", "key": "SED"},
     "urlcheck": {"type": "dict", "key": "URLCHECK"},

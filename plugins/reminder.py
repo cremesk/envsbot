@@ -979,7 +979,7 @@ async def _restore_pending_reminders(bot) -> int:
         if seconds_left < 0.1:
             overdue_str = _format_overdue(seconds_left)
             log.info(
-                "[REMINDER] 🔔 Reminder %s is overdue (%s), sending now",
+                "[REMINDER] ⏰ Reminder %s is overdue (%s), sending now",
                 reminder_id,
                 overdue_str,
             )
@@ -1154,7 +1154,7 @@ async def list_reminders(bot, sender_jid, nick, args, msg, is_room):
             bot.reply(msg, "✅ No pending reminders.")
             return
 
-        lines = ["🔔 Your pending reminders:"]
+        lines = ["⏰ Your pending reminders:"]
 
         for reminder in reminders:
             remind_at = _parse_datetime(reminder["remind_at"])

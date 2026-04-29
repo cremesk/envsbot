@@ -87,7 +87,7 @@ async def get_timezone(bot, jid):
     store = bot.db.users.plugin("vcard")
     tzname = None
     if store:
-        tzname = store.get(jid, "TIMEZONE")
+        tzname = await store.get(jid, "TIMEZONE")
     if tzname:
         try:
             return pytz.timezone(tzname)

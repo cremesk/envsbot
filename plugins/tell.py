@@ -203,7 +203,7 @@ async def deliver_tell_messages(bot, msg):
             tzinfo
         )
         timestr = when.strftime("%a, %d %b %H:%M %Z")
-        await asyncio.sleep(1)  # slight delay to avoid flooding on join
+        await asyncio.sleep(5)  # slight delay to avoid flooding on join
         bot.reply(
             {
                 "from": msg["from"],

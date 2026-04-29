@@ -380,7 +380,7 @@ async def _get_birthday_from_vcard(bot, room_jid, nick: str):
             mbody="",
         )
 
-        birthday = await vcard_field(bot, lookup_msg, nick, "BDAY")
+        birthday = await vcard_field(bot, lookup_msg, nick, "BDAY", is_room=True)
         return True, _normalize_bday_value(birthday)
 
     except Exception as exc:

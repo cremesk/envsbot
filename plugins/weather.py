@@ -202,7 +202,7 @@ async def weather_command(bot, sender_jid, nick, args, msg, is_room):
             bot.reply(msg, "🔴  In a DM, you cannot specify a different nick. Just use the command without arguments to get your weather.")
             return
         try:
-            _vcard = await vcard.get_user_vcard(bot, msg)
+            _vcard = await vcard.get_user_vcard(bot, msg, targret_nick)
             _locality = _vcard.get("LOCALITY", None)
             _region = _vcard.get("REGION", None)
             _country = _vcard.get("CTRY", None)

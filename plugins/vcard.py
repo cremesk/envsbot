@@ -38,7 +38,7 @@ VCARD_KEY = "VCARD"
 
 PLUGIN_META = {
     "name": "vcard",
-    "version": "0.4.0",
+    "version": "0.4.2",
     "description": "Lookup and display vCard of a MUC occupant by MUC JID only",
     "category": "info",
     "requires": ["rooms", "core"],
@@ -72,7 +72,7 @@ async def vcard_field(bot, msg, target_nick, field, is_room=False):
         if not is_room and not core._is_muc_pm(msg):
             jid = msg["from"].bare
         else:
-            jid = JOINED_ROOMS.get(msg["from"].bare, {}).get("nicks", {}).get(target_nick, {}).get("jid")
+            jid = core.get_real_jid_from_occupant(bot, msg, target_nick)
         if not jid:
             log.warning(f"[VCARD] 🔴  Nick '{target_nick}' not found in room"
                         f"'{msg['from'].bare}' for TIMEZONE lookup")
@@ -227,11 +227,11 @@ async def _get_vcard_field(bot, sender_jid, nick, args, msg, is_room,
             return
         if field == "TIMEZONE":
             store = bot.db.users.plugin("vcard")
-            jid = JOINED_ROOMS.get(room, {}).get("nicks", {}).get(target_nick, {}).get("jid")
+            jid = nick_info.get("jid")
             value = await store.get(str(jid), "TIMEZONE")
             log.info(f"[VCARD] TIMEZONE lookup for nick '{target_nick}' with JID '{jid}' in room '{room}': {value}")
         else:
-            jid = JOINED_ROOMS.get(room, {}).get("nicks", {}).get(target_nick, {}).get("jid")
+            jid = nick_info.get("jid")
             vcard = await get_user_vcard(bot, msg, jid)
             value = vcard[field]
         if value is None or value == "" or value == []:
@@ -347,17 +347,13 @@ async def get_vcard(bot, msg, jid=None):
     Helper function to fetch vCard for a given JID using the xep_0054 plugin.
     """
     if jid is None:
-        jid, _is_muc_pm, _is_muc_groupchat = await core.get_real_jid(bot, msg)
-    # Only fetch vCard for real user JIDs, not for MUC bare JIDs or nicks
-    if not jid or jid in JOINED_ROOMS:
-        log.warning(f"[VCARD] Not a real user JID for vCard lookup: {jid}")
-        return None
+        jid = await core.get_real_jid(bot, msg)[0]
     try:
         vcard_plugin = bot.plugin.get("xep_0054", None)
         if not vcard_plugin:
             raise RuntimeError("vCard support (xep_0054) is not enabled in this bot.")
         try:
-            result = await vcard_plugin.get_vcard(jid=jid, cached=False, timeout=10)
+            result = await vcard_plugin.get_vcard(jid=str(jid), cached=False, timeout=10)
         except Exception as e:
             log.exception(f"[VCARD] Exception while fetching vCard for '{jid}': {e}")
             result = None
@@ -597,7 +593,7 @@ async def vcard_command(bot, sender_jid, sender_nick, args, msg, is_room):
             bot.reply(msg, f"🔴  Could not resolve your JID for nick '{target_nick}'.")
             return
     else:
-    # DM context: lookup sender's own vCard by JID
+        # DM context: lookup sender's own vCard by JID
         if args:
             log.info(f"[VCARD] Direct message with args from '{msg['from'].bare}'")
             bot.reply(msg, "🔴  In direct messages, you can only look up your own vCard. Use the command without args.")
@@ -821,6 +817,7 @@ async def get_birthday(bot, sender_jid, nick, args, msg, is_room):
             bot.reply(msg, f"🔴  Nick '{target_nick}' not found in this room.")
             return
         display_name = target_nick
+        jid = nick_info.get("jid")
     elif (is_room or core._is_muc_pm(msg)) and not args:
         target_nick = msg["from"].resource
         room = msg["from"].bare
@@ -830,18 +827,18 @@ async def get_birthday(bot, sender_jid, nick, args, msg, is_room):
         if not nick_info:
             bot.reply(msg, f"🔴  Your Nick '{target_nick}' not found in this room.")
             return
+        jid = nick_info.get("jid")
         display_name = target_nick
     else:
         if args:
             log.info(f"[VCARD] Direct message with args from '{msg['from'].bare}'")
             bot.reply(msg, "🔴  In direct messages, you can only look up your own birthday. Use the command without args.")
             return
-        target_nick = None
-        room = None
-        jid = msg["from"].bare
+        room = "Direct Message"
+        jid = str(msg["from"].bare)
         display_name = jid
 
-    vcard = await get_info(bot, msg, jid=jid)
+    vcard = await get_info(bot, msg, jid)
     value = None
     if vcard and vcard["BDAY"] is not None:
         value = vcard["BDAY"]

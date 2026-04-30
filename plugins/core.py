@@ -17,7 +17,7 @@ from plugins.vcard import get_user_vcard
 
 PLUGIN_META = {
     "name": "core",
-    "version": "0.1.3",
+    "version": "0.2.0",
     "description": "Core utilities and shared helpers for other plugins.",
     "category": "internal",
     "requires": ["rooms"],  # Ensure 'rooms' is loaded first
@@ -97,7 +97,7 @@ async def get_real_jid(bot, msg):
             result = None
         # Fallback: try to resolve via UserManager's _nick_index if not found
         if result is None and nick:
-            result = await get_real_jids_from_nick(bot, nick)
+            result = await get_jids_from_nick_index(bot, nick)
 
     if result is not None and _is_muc_pm(msg):
         # MUC private message, try to resolve real JID
@@ -122,7 +122,7 @@ async def get_real_jid(bot, msg):
 # real JIDs from nicks in MUC contexts, even if we don't have the full message
 # ccontext.
 # -----------------------------------------------------------------------
-async def get_real_jids_from_nick(bot, nick):
+async def get_jids_from_nick_index(bot, nick):
     """Look up the real JID of a nick from the UserManager's _nick_index."""
     idx = getattr(bot.db.users, "_nick_index", {})
     value = idx.get(nick)
@@ -131,6 +131,26 @@ async def get_real_jids_from_nick(bot, nick):
     if isinstance(value, list):
         return value
     return value or None
+
+
+# -----------------------------------------------------------------------
+# Helper to look up the real JID of a MUC occupant from JOINED_ROOMS,
+# given a message context
+# -----------------------------------------------------------------------
+async def get_real_jid_from_occupant(bot, msg, nick=None):
+    """Look up the real JID of a nick from room occupant"""
+    try:
+        nicks = JOINED_ROOMS.get(msg['from'].bare, {}).get("nicks", {})
+        if nick is None:
+            jid = nicks.get(msg['from'].resource, {}).get("jid", None)
+        else:
+            jid = nicks.get(nick, {}).get("jid", None)
+    except Exception as e:
+        s = "[CORE] 🟡 Error resolving real JID from occupant for"
+        s += "%s in %s: %s", msg['from'].resource, msg['from'].bare, e
+        log.warning(s)
+        jid = None
+    return jid
 
 
 # -----------------------------------------------------------------------

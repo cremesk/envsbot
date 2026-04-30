@@ -654,7 +654,8 @@ async def vcard_command(bot, sender_jid, sender_nick, args, msg, is_room):
         else:
             timezone = await store.get(str(jid), "TIMEZONE")
         if timezone:
-            lines.append("")  # Blank line before timezone
+            if lines[-1] != "":
+                lines.append("")  # Blank line before timezone
             lines.append(f"• Timezone: {timezone}")
 
         bot.reply(msg, lines)

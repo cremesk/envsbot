@@ -153,6 +153,28 @@ async def get_real_jid_from_occupant(bot, msg, nick=None):
         jid = None
     return jid
 
+# -----------------------------------------------------------------------
+# Helper to look up all nicks of a JID from the UserManager's _nick_index,
+# which is populated by the MUC plugin when users join rooms. This allows
+# us to find all nicks associated with a JID across different rooms and
+# contexts.
+# -----------------------------------------------------------------------
+async def get_nicks_from_jid(bot, jid):
+    """
+    Helper to look up all nicknames of a JID from the
+    UserManager's _nick_index. Returns a list of nicks.
+    """
+    idx = getattr(bot.db.users, "_nick_index", {})
+    nicks = []
+    for nick, value in idx.items():
+        if isinstance(value, set) and jid in value:
+            nicks.append(nick)
+        elif isinstance(value, list) and jid in value:
+            nicks.append(nick)
+        elif value == jid:
+            nicks.append(nick)
+    return nicks
+
 
 # -----------------------------------------------------------------------
 # Helper to check if a user exists in the database, and reply with an error

@@ -48,8 +48,37 @@ log = logging.getLogger(__name__)
 
 
 async def get_user_vcard(bot, msg, jid=None):
+    """ Fetch and return the vCard information for a user.
+
+    This function retrieves the vCard for the specified JID (or the sender
+    if not provided), formats the vCard data, and adds the user's timezone
+    from the database if available.
+
+    Args:
+        bot: The bot instance.
+        msg: The message object (context for resolving JID if not provided).
+        jid: (Optional) The JID of the user whose vCard to fetch.
+             If None, resolves from msg.
+
+    Returns:
+        dict: A dictionary containing vCard fields (e.g., FN, NICKNAME,
+        BDAY, URL, ORG, NOTE, EMAIL, LOCALITY, REGION, COUNTRY, TZ).
+              The "TZ" field is populated from the database if available.
+    """
     vcard_info = await get_vcard(bot, msg, jid)
     _, _vcard = _format_vcard_reply(vcard_info, None, None)
+
+    # add Timezone from DB if available
+    store = await get_vcard_store(bot)
+    timezone = None
+    jid, _, _ = await core.get_real_jid(bot, msg)
+    if jid is not None:
+        timezone = await store.get(str(jid), "TIMEZONE")
+    else:
+        jid, _, _ = await core.get_real_jid(bot, msg)
+        timezone = await store.get(str(jid), "TIMEZONE")
+    _vcard["TZ"] = timezone
+
     return _vcard
 
 
@@ -347,7 +376,7 @@ async def get_vcard(bot, msg, jid=None):
     Helper function to fetch vCard for a given JID using the xep_0054 plugin.
     """
     if jid is None:
-        jid = await core.get_real_jid(bot, msg)[0]
+        jid, _, _ = await core.get_real_jid(bot, msg)
     try:
         vcard_plugin = bot.plugin.get("xep_0054", None)
         if not vcard_plugin:

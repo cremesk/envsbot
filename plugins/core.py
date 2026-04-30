@@ -17,7 +17,7 @@ from plugins.vcard import get_user_vcard
 
 PLUGIN_META = {
     "name": "core",
-    "version": "0.2.0",
+    "version": "0.2.2",
     "description": "Core utilities and shared helpers for other plugins.",
     "category": "internal",
     "requires": ["rooms"],  # Ensure 'rooms' is loaded first
@@ -46,6 +46,7 @@ log = logging.getLogger(__name__)
 #   - vcard['LOCALITY'] - Locality
 #   - vcard['REGION'] - Region
 #   - vcard['COUNTRY'] - Country
+#   - vcard['TZ'] - Timezone
 # ----------------------------------------------------------------------
 get_profile = get_user_vcard
 

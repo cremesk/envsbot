@@ -241,7 +241,8 @@ async def on_groupchat_message(bot, msg):
                 is_ok = "text/html" in ctype
             if is_ok and title:
                 _body = f"[URL] {html.unescape(title)} {st} - ({final_url})"
-                _body += f"\nDesc: '{html.unescape(mdesc)}'"
+                if isinstance(mdesc, str):
+                    _body += f"\nDesc: '{html.unescape(mdesc)}'"
                 message = bot.make_message(
                     mto=msg["from"].bare,
                     mbody=_body.strip(),

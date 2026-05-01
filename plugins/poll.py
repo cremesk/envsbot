@@ -43,7 +43,7 @@ log = logging.getLogger(__name__)
 
 PLUGIN_META = {
     "name": "poll",
-    "version": "1.1.0",
+    "version": "1.0.0",
     "description": "Room polls with voting, history and auto-close",
     "category": "fun",
     "requires": ["rooms", "_core"],

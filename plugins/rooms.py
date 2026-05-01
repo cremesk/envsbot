@@ -11,7 +11,7 @@ Newly created rooms will be created with the plugin defaults (on/off)
 defined in the "rooms" plugin.
 
 You can set the rooms plugins back to the defaults with the following command:
-    {prefix}room setdefaults <room_jid>
+    {prefix}room set_plugin_defaults
 
 Rooms can optionally be configured with an *autojoin* flag so the
 bot automatically joins them when it starts.

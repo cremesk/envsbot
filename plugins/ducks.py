@@ -43,7 +43,7 @@ log = logging.getLogger(__name__)
 
 PLUGIN_META = {
     "name": "ducks",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "description": "Duck game for MUCs with room toggles and leaderboards",
     "category": "fun",
     "requires": ["rooms", "_core"],
@@ -547,7 +547,7 @@ async def duck_command(bot, sender_jid, nick, args, msg, is_room):
         return
 
     if sub == "stats":
-        target = args[1] if len(args) > 1 else await _resolve_real_jid(bot, msg)
+        target = " ".join(args[1:]).strip() if len(args) > 1 else await _resolve_real_jid(bot, msg)
         if not target:
             _duck_reply(bot, msg, "❌ Could not determine target user.")
             return

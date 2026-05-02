@@ -344,6 +344,7 @@ async def fetch_url_title(url, max_redirects=3):
                 status = resp.status
                 ctype = resp.headers.get("Content-Type", "")
                 content_size = None
+                chunk_count = 0
                 if "Content-Length" in resp.headers:
                     try:
                         content_size = int(resp.headers["Content-Length"])
@@ -357,14 +358,14 @@ async def fetch_url_title(url, max_redirects=3):
                     continue
                 if "text/html" in ctype:
                     window = b""
-                    max_window = 32768  # 32 KB to be safe for large Wiki pages
-                    chunk_count = 0
+                    max_window = 32768  # 32 KB rolling window
                     title_found = None
                     desc_found = None
                     async for chunk in resp.content.iter_chunked(8192):
                         window += chunk
+                        # Maintain a rolling window of max_window bytes
                         if len(window) > max_window:
-                            break
+                            window = window[-max_window:]
                         try:
                             text = window.decode(resp.charset or "utf-8", errors="replace")
                         except Exception:
@@ -374,9 +375,10 @@ async def fetch_url_title(url, max_redirects=3):
                         title, desc = extract_html_title_desc(text)
                         if title and not title_found:
                             title_found = title
-                            # Optionally break here for speed, OR keep reading if you want description
                         if desc and not desc_found:
                             desc_found = desc
+                        if title_found and desc_found:
+                            break
                         chunk_count += 1
 
                     # Fallback in case title/desc were not yet found

@@ -1,46 +1,43 @@
 """
 📚 Help system for the bot.
 
-This plugin provides dynamic help for:
-• Plugins
-• Commands
-• Multi-word commands
-
-IMPORTANT: You can turn on/off the in-room help with the command:
-    {prefix}help inroom <on|off|status>
+The help output is generated from the live command registry. It supports plugin
+help, focused command help, role filtering and aliases.
 
 Usage
 -----
-General help:
   {prefix}help
-Turn on help in rooms:
-  {prefix}help inroom <on|off|status>
-Plugin help:
+  {prefix}help all
+  {prefix}help commands
+  {prefix}help plugins
+  {prefix}help roles
   {prefix}help <plugin>
-Command help:
+  {prefix}help <command>
   {prefix}help {prefix}<command>
+  {prefix}help inroom <on|off|status>
 
-Examples:
+Examples
+--------
   {prefix}help rooms
-  {prefix}help {prefix}timezone
-  {prefix}help {prefix}presence set
-
-Notes
------
-• Commands are filtered by user role.
-• Plugins always display their full docstring.
-• Command help displays the full command docstring.
+  {prefix}help rooms add
+  {prefix}help {prefix}rooms add
+  {prefix}help users role
 """
 
+from __future__ import annotations
+
+import inspect
 import logging
+import re
+
 import slixmpp
 
 from utils.command import (
+    COMMANDS,
+    Role,
+    check_permission,
     command,
     resolve_command,
-    check_permission,
-    Role,
-    COMMANDS
 )
 from utils.config import config
 
@@ -52,7 +49,7 @@ HELP_KEY = "HELP"
 
 PLUGIN_META = {
     "name": "help",
-    "version": "0.3.1",
+    "version": "0.4.0",
     "description": "Dynamic help for plugins and commands.",
     "category": "core",
     "requires": ["_core"],
@@ -65,64 +62,126 @@ async def get_help_store(bot):
 
 
 # --------------------------------------------------
-# DOCSTRING HELPERS
+# DOCSTRING / METADATA HELPERS
 # --------------------------------------------------
 
-def _first_line(doc):
+def _clean_doc(doc: str | None, prefix: str) -> str:
+    """Return a readable docstring with prefix placeholders resolved."""
     if not doc:
         return ""
-    return doc.strip().splitlines()[0]
+    return inspect.cleandoc(doc).replace("{prefix}", prefix).strip()
 
 
-def _clean_doc(doc, prefix):
+def _first_line(doc: str | None) -> str:
+    """Return the first non-empty line from a docstring."""
+    doc = _clean_doc(doc, "")
     if not doc:
         return ""
-
-    lines = []
-
-    for line in doc.strip().splitlines():
-        lines.append(line.replace("{prefix}", prefix).rstrip())
-
-    return "\n".join(lines)
+    for line in doc.splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return ""
 
 
-# --------------------------------------------------
-# QUERY EXTRACTION
-# --------------------------------------------------
-
-def _extract_query(msg, prefix):
+def _section_lines(doc: str, title: str) -> list[str]:
     """
-    Extract raw help query from message body.
-
-    This avoids command token normalization so that
-    multi-word commands like "status set" work correctly.
+    Extract simple NumPy-style docstring sections such as Usage or Examples.
     """
+    if not doc:
+        return []
 
-    body = msg["body"].strip()
+    lines = doc.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if line.strip().lower() == title.lower():
+            start = i + 1
+            # Skip underline made of dashes if present.
+            if start < len(lines) and set(lines[start].strip()) <= {"-"}:
+                start += 1
+            break
+    if start is None:
+        return []
 
-    if not body.startswith(prefix):
-        return ""
+    out = []
+    for line in lines[start:]:
+        stripped = line.strip()
+        if (
+            stripped
+            and re.fullmatch(r"[A-Za-z][A-Za-z /_-]+", stripped)
+            and len(stripped.split()) <= 4
+        ):
+            break
+        out.append(line.rstrip())
 
-    body = body[len(prefix):].strip()
+    return [line for line in out if line.strip()]
 
-    if not body.lower().startswith("help"):
-        return ""
 
-    return body[4:].strip()
+def _command_short(cmd_obj, prefix: str) -> str:
+    if getattr(cmd_obj, "short", ""):
+        return cmd_obj.short.format(prefix=prefix)
+    return _first_line(cmd_obj.handler.__doc__) or "No description available."
+
+
+def _command_usage(cmd_obj, prefix: str) -> list[str]:
+    if getattr(cmd_obj, "usage", ""):
+        return [cmd_obj.usage.format(prefix=prefix)]
+
+    doc = _clean_doc(cmd_obj.handler.__doc__, prefix)
+    usage = _section_lines(doc, "Usage")
+    if usage:
+        return usage
+
+    return [f"{prefix}{cmd_obj.name}"]
+
+
+def _command_examples(cmd_obj, prefix: str) -> list[str]:
+    examples = [e.format(prefix=prefix) for e in getattr(cmd_obj, "examples", [])]
+    if examples:
+        return examples
+
+    doc = _clean_doc(cmd_obj.handler.__doc__, prefix)
+    return _section_lines(doc, "Example") + _section_lines(doc, "Examples")
+
+
+def _role_label(role: Role) -> str:
+    return str(role)
+
+
+def _context_label(cmd_obj) -> str:
+    context = getattr(cmd_obj, "context", "any") or "any"
+    if context != "any":
+        return context
+
+    # envsbot blocks privileged commands in normal room messages.
+    if getattr(cmd_obj, "role", Role.NONE) <= Role.MODERATOR:
+        return "private chat / MUC PM"
+    return "room, MUC PM or private chat"
+
+
+def _plugin_meta(bot, name: str) -> dict:
+    meta = getattr(bot.bot_plugins, "meta", {}).get(name, {}) or {}
+    if meta:
+        return meta
+
+    module = bot.bot_plugins.plugins.get(name)
+    if module is None:
+        return {}
+    return getattr(module, "PLUGIN_META", {}) or {}
+
+
+def _plugin_description(bot, name: str, module) -> str:
+    meta = _plugin_meta(bot, name)
+    desc = meta.get("description") or _first_line(module.__doc__)
+    return desc or "No description available."
 
 
 # --------------------------------------------------
-# COMMAND DISCOVERY
+# COMMAND DISCOVERY / FORMATTERS
 # --------------------------------------------------
 
 def _commands_for_plugin(bot, plugin_name, user_role):
-    """
-    Dynamically collect commands belonging to a plugin.
-
-    This reads the live command registry and removes duplicates
-    caused by command aliases.
-    """
-
+    """Collect visible canonical commands belonging to a plugin."""
     commands = []
     seen = set()
 
@@ -131,13 +190,8 @@ def _commands_for_plugin(bot, plugin_name, user_role):
     for tokens in tokens_list:
         cmd = COMMANDS.get(tokens)
 
-        if not cmd:
+        if not cmd or id(cmd) in seen:
             continue
-
-        # skip aliases (same Command object)
-        if id(cmd) in seen:
-            continue
-
         if not check_permission(user_role, cmd):
             continue
 
@@ -145,207 +199,313 @@ def _commands_for_plugin(bot, plugin_name, user_role):
         commands.append(cmd)
 
     commands.sort(key=lambda c: c.name)
-
     return commands
 
 
-# --------------------------------------------------
-# COMMAND FORMATTER
-# --------------------------------------------------
+def _all_visible_commands(bot, role: Role):
+    commands = []
+    seen = set()
+    for plugin_name in sorted(bot.bot_plugins.plugins):
+        for cmd in _commands_for_plugin(bot, plugin_name, role):
+            if id(cmd) not in seen:
+                seen.add(id(cmd))
+                commands.append((plugin_name, cmd))
+    commands.sort(key=lambda item: (item[0], item[1].name))
+    return commands
 
-def _format_command(cmd_obj, prefix):
-    """
-    Format command entry for plugin help.
-    """
 
-    name = cmd_obj.name
-    role = str(cmd_obj.role)
-
-    desc = _first_line(cmd_obj.handler.__doc__) or ""
-
-    aliases = cmd_obj.aliases or []
-
-    # remove canonical name if it appears as alias
-    aliases = [a for a in aliases if a != name]
-
-    # ensure deterministic order
-    aliases = sorted(set(aliases))
-
+def _format_command_line(cmd_obj, prefix: str) -> str:
+    aliases = sorted(set(a for a in (cmd_obj.aliases or []) if a != cmd_obj.name))
+    alias_text = ""
     if aliases:
-        alias_text = " (" + ", ".join(prefix + a for a in aliases) + ")"
-    else:
-        alias_text = ""
+        alias_text = f" / aliases: {', '.join(prefix + a for a in aliases)}"
+    return (
+        f"• {prefix}{cmd_obj.name} [{_role_label(cmd_obj.role)}] — "
+        f"{_command_short(cmd_obj, prefix)}{alias_text}"
+    )
 
-    return f"{prefix}{name}{alias_text} [{role}] - {desc}"
+
+def _format_command_detail(cmd_obj, prefix: str) -> list[str]:
+    lines = [
+        f"📖 Command: {prefix}{cmd_obj.name}",
+        f"Role: {_role_label(cmd_obj.role)}",
+        f"Context: {_context_label(cmd_obj)}",
+    ]
+
+    aliases = sorted(set(a for a in (cmd_obj.aliases or []) if a != cmd_obj.name))
+    if aliases:
+        lines.append("Aliases: " + ", ".join(prefix + a for a in aliases))
+
+    lines += ["", _command_short(cmd_obj, prefix), "", "Usage:"]
+    for usage in _command_usage(cmd_obj, prefix):
+        lines.append(f"  {usage}")
+
+    examples = _command_examples(cmd_obj, prefix)
+    if examples:
+        lines += ["", "Examples:"]
+        for example in examples:
+            lines.append(f"  {example}")
+
+    doc = _clean_doc(cmd_obj.handler.__doc__, prefix)
+    if doc:
+        lines += ["", "Details:", doc]
+
+    return lines
+
+
+def _plugin_is_visible(bot, name: str, role: Role) -> bool:
+    if name.startswith("_") and role > Role.ADMIN:
+        return False
+    if role <= Role.ADMIN:
+        return True
+    return bool(_commands_for_plugin(bot, name, role))
+
+
+# --------------------------------------------------
+# ROLE RESOLUTION
+# --------------------------------------------------
+
+async def _sender_role(bot, sender_jid, msg) -> tuple[Role, str | None]:
+    """Resolve the role for help output without assuming a MUC context."""
+    room = None
+    jid = sender_jid
+
+    try:
+        if msg.get("type") == "groupchat":
+            room = msg["from"].bare
+            nick = msg.get("mucnick") or msg["from"].resource
+            muc = bot.plugin.get("xep_0045", None)
+            if muc:
+                resolved = muc.get_jid_property(room, nick, "jid")
+                if resolved:
+                    jid = str(slixmpp.JID(resolved).bare)
+        else:
+            jid = str(slixmpp.JID(msg["from"]).bare)
+    except Exception:
+        jid = str(sender_jid)
+
+    return await bot.get_user_role(jid, room), room
 
 
 # --------------------------------------------------
 # HELP COMMAND
 # --------------------------------------------------
 
-@command("help", aliases=["h"])
+@command(
+    "help",
+    aliases=["h"],
+    short="Show help for plugins and commands.",
+    usage="{prefix}help [all|commands|plugins|roles|<plugin>|<command>]",
+    examples=[
+        "{prefix}help",
+        "{prefix}help rooms",
+        "{prefix}help rooms add",
+        "{prefix}help {prefix}users role",
+    ],
+)
 async def cmd_help(bot, sender_jid, nick, args, msg, is_room):
-    """Show help for plugins and commands
-
-    Usage:
-      {prefix}help - This help page
-      {prefix}help <plugin> - Help for a specific plugin from the list below
-      {prefix}help {prefix}<command> - Help for a specific command of a plugin
-    """
-
-    prefix = bot.prefix
-
-    # Check, if command is allowed in this context (room or MUC PM)
+    """Show help for plugins and commands."""
     enabled_rooms = await _get_enabled_rooms(bot, HELP_KEY, "help")
     if is_room and msg["from"].bare not in enabled_rooms:
-        bot.reply(
-            msg, "ℹ️ Help is only available via private message in this room.")
+        bot.reply(msg, "ℹ️ Help is only available via private message in this room.")
         return
 
+    role, _room = await _sender_role(bot, sender_jid, msg)
     query = " ".join(args).strip()
 
-    room = msg['from'].bare
-    nick = msg['from'].resource
-
-    jid = None
-    muc = bot.plugin.get("xep_0045", None)
-    if muc:
-        jid = slixmpp.JID(muc.get_jid_property(
-            room, nick, "jid"))
-    if jid == "":
-        jid = sender_jid
-    jid = str(slixmpp.JID(jid))
-
-    # determine sender role
-    role = await bot.get_user_role(jid, room)
-
-    # GENERAL HELP
     if not query:
         bot.reply(msg, await _general(bot, role))
         return
 
-    # COMMAND HELP
-    if query.startswith(prefix):
-
-        bot.reply(msg, await _command(bot, query, role))
+    query_lc = query.lower()
+    if query_lc == "all":
+        bot.reply(msg, await _all(bot, role))
+        return
+    if query_lc == "commands":
+        bot.reply(msg, await _commands(bot, role))
+        return
+    if query_lc == "plugins":
+        bot.reply(msg, await _plugins(bot, role))
+        return
+    if query_lc == "roles":
+        bot.reply(msg, _roles())
         return
 
-    # PLUGIN HELP
+    # Focused command help. Accept both ",help ,rooms add" and
+    # ",help rooms add" because the latter is easier to type.  Exact plugin
+    # names keep plugin-help priority for backwards compatibility.
+    if query.startswith(bot.prefix):
+        command_query = query[len(bot.prefix):].strip()
+        cmd_obj, _ = resolve_command(command_query)
+        if cmd_obj:
+            bot.reply(msg, await _command(bot, cmd_obj, role))
+        else:
+            bot.reply(msg, ["🟡️ Unknown command."])
+        return
+
+    if query_lc in bot.bot_plugins.plugins:
+        bot.reply(msg, await _plugin(bot, query, role))
+        return
+
+    cmd_obj, _ = resolve_command(query)
+    if cmd_obj:
+        bot.reply(msg, await _command(bot, cmd_obj, role))
+        return
+
     bot.reply(msg, await _plugin(bot, query, role))
-    return
 
 
 # --------------------------------------------------
 # GENERAL HELP
 # --------------------------------------------------
-async def _general(bot, role: Role) -> list:
-    pm = bot.bot_plugins
-    doc = cmd_help.__doc__.format(prefix=bot.prefix)
+async def _general(bot, role: Role) -> list[str]:
+    lines = [
+        f"📚 Envsbot {bot.version or 'unknown'} help",
+        "",
+        "Start here:",
+        f"• {bot.prefix}help commands — list commands visible to you",
+        f"• {bot.prefix}help plugins — list loaded plugins",
+        f"• {bot.prefix}help <plugin> — plugin-specific help",
+        f"• {bot.prefix}help <command> — focused command help",
+        f"• {bot.prefix}help roles — role overview",
+        "",
+        "Loaded plugins:",
+    ]
 
-    lines = [f"📚 Envsbot - Version {bot.version or 'unknown'}", ""]
-    lines += [f"{doc}"]
-    lines += ["📦 Available plugins", ""]
-
-    for name, module in sorted(pm.plugins.items()):
-
-        # hide internal plugins for non-admin users
-        if name.startswith("_") and role > Role.ADMIN:
+    for name, module in sorted(bot.bot_plugins.plugins.items()):
+        if not _plugin_is_visible(bot, name, role):
             continue
+        desc = _plugin_description(bot, name, module)
+        lines.append(f"• {name} — {desc}")
 
-        # collect commands visible to this user
-        commands = _commands_for_plugin(bot, name, role)
+    lines += [
+        "",
+        f"Tip: use {bot.prefix}help all for a full command overview.",
+    ]
+    return lines
 
-        # hide plugins with no visible commands for non-admin users
-        if role > Role.ADMIN and not commands:
+
+async def _plugins(bot, role: Role) -> list[str]:
+    lines = ["📦 Loaded plugins", ""]
+    by_category: dict[str, list[str]] = {}
+
+    for name, module in sorted(bot.bot_plugins.plugins.items()):
+        if not _plugin_is_visible(bot, name, role):
             continue
+        meta = _plugin_meta(bot, name)
+        category = meta.get("category", "other")
+        desc = _plugin_description(bot, name, module)
+        by_category.setdefault(category, []).append(f"• {name} — {desc}")
 
-        doc = _first_line(module.__doc__) or ""
-        lines.append(f"•  {name} — {doc}")
+    for category in sorted(by_category):
+        lines.append(f"{category}:")
+        lines.extend(by_category[category])
+        lines.append("")
 
+    if lines[-1] == "":
+        lines.pop()
+    return lines
+
+
+async def _commands(bot, role: Role) -> list[str]:
+    lines = ["🧭 Commands", ""]
+    grouped: dict[str, list[str]] = {}
+
+    for plugin_name, cmd in _all_visible_commands(bot, role):
+        grouped.setdefault(plugin_name, []).append(_format_command_line(cmd, bot.prefix))
+
+    for plugin_name in sorted(grouped):
+        lines.append(f"{plugin_name}:")
+        lines.extend(grouped[plugin_name])
+        lines.append("")
+
+    if lines[-1] == "":
+        lines.pop()
+    return lines
+
+
+async def _all(bot, role: Role) -> list[str]:
+    lines = await _general(bot, role)
+    lines += ["", "────────────────", ""]
+    lines.extend(await _commands(bot, role))
     return lines
 
 
 # --------------------------------------------------
 # COMMAND HELP
 # --------------------------------------------------
-async def _command(bot, query: str, role: Role) -> list:
-    lines = []
-    cmd_text = query[len(bot.prefix):].strip()
-
-    cmd_obj, _ = resolve_command(cmd_text)
-
-    if not cmd_obj:
-        lines.append("🟡️ Unknown command.")
-        return lines
-
+async def _command(bot, cmd_obj, role: Role) -> list[str]:
     if not check_permission(role, cmd_obj):
-        lines.append("⛔ You do not have permission to use this command.")
-        return lines
-
-    doc = _clean_doc(cmd_obj.handler.__doc__, bot.prefix)
-
-    lines = [
-        f"📖 Command: {bot.prefix}{cmd_obj.name}",
-        ""
-    ]
-
-    if doc:
-        lines.append(doc)
-
-    return lines
+        return ["⛔ You do not have permission to use this command."]
+    return _format_command_detail(cmd_obj, bot.prefix)
 
 
 # --------------------------------------------------
 # PLUGIN HELP
 # --------------------------------------------------
-async def _plugin(bot, query: str, role: Role) -> list:
-    lines = []
+async def _plugin(bot, query: str, role: Role) -> list[str]:
     pm = bot.bot_plugins
     plugin = query.lower()
 
-    # hide internal plugins for non-admin users
     if plugin.startswith("_") and role > Role.ADMIN:
-        lines.append("🟡️ Unknown plugin.")
-        return lines
+        return ["🟡️ Unknown plugin or command."]
 
     if plugin not in pm.plugins:
-        lines.append("🟡️ Unknown plugin.")
-        return lines
+        return ["🟡️ Unknown plugin or command."]
 
     module = pm.plugins[plugin]
+    meta = _plugin_meta(bot, plugin)
+    lines = [f"📦 Plugin: {plugin}"]
 
-    lines = [
-        f"📦 Plugin: {plugin}",
-        ""
-    ]
+    if meta.get("version"):
+        lines.append(f"Version: {meta['version']}")
+    if meta.get("category"):
+        lines.append(f"Category: {meta['category']}")
+    if meta.get("requires"):
+        lines.append("Requires: " + ", ".join(meta["requires"]))
 
-    module_doc = _clean_doc(module.__doc__, bot.prefix)
-
-    if module_doc:
-        lines.append(module_doc)
-        lines.append("")
-
-    lines.append("Commands:")
+    lines += ["", _plugin_description(bot, plugin, module), "", "Commands:"]
 
     commands = _commands_for_plugin(bot, plugin, role)
-
     if not commands:
         lines.append("No commands available for your role.")
     else:
         for cmd in commands:
-            lines.append(_format_command(cmd, bot.prefix))
+            lines.append(_format_command_line(cmd, bot.prefix))
+
     return lines
 
 
-@command("help inroom", role=Role.USER, aliases=["h inroom"])
+def _roles() -> list[str]:
+    return [
+        "🛡️ Roles",
+        "",
+        "Lower numbers have more privileges.",
+        "• owner — full control; configured owner JID",
+        "• superadmin — high-level administration",
+        "• admin — normal bot administration",
+        "• moderator — room/plugin moderation commands",
+        "• trusted — trusted user commands",
+        "• user — normal user commands",
+        "• new / none — limited or unknown users",
+        "• banned — no command access",
+    ]
+
+
+@command(
+    "help inroom",
+    role=Role.USER,
+    aliases=["h inroom"],
+    short="Enable, disable or show room help availability.",
+    usage="{prefix}help inroom <on|off|status>",
+    examples=["{prefix}help inroom on", "{prefix}help inroom status"],
+    context="room or MUC PM",
+)
 async def help_inroom_command(bot, sender_jid, sender_nick,
                               args, msg, is_room):
     """
     Toggles usage of help inside a particular chat room.
     This is stored on a per-room basis and does not affect private messages.
-
-    Usage:
-        {prefix}help inroom <on|off|status>
     """
 
     handled = await handle_room_toggle_command(
@@ -362,6 +522,4 @@ async def help_inroom_command(bot, sender_jid, sender_nick,
     if handled:
         return
 
-    bot.reply(msg, f"Usage: {config.get('prefix', ',')
-                             }help inroom <on|off|status>")
-    return
+    bot.reply(msg, f"Usage: {config.get('prefix', ',')}help inroom <on|off|status>")

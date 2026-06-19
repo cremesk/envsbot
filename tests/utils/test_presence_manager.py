@@ -4,10 +4,14 @@ from utils.presence_manager import PresenceManager
 class DummyBot:
     def __init__(self):
         self.calls = []
+        self.sent_stanzas = []
         self.bot_plugins = type("Plugins", (), {"plugins": {}})()
 
     def send_presence(self, **kwargs):
         self.calls.append(kwargs)
+
+    def send(self, stanza):
+        self.sent_stanzas.append(stanza)
 
 
 def test_presence_manager_update_sets_status():
@@ -55,3 +59,24 @@ def test_broadcast_with_rooms(monkeypatch):
     main, room = bot.calls
     assert "pto" not in main
     assert room["pto"] == "room1/Bob"
+
+
+def test_broadcast_with_avatar_hash_sends_xep0153_presence():
+    bot = DummyBot()
+    bot.avatar_hash = "abc123"
+    pm = PresenceManager(bot)
+    room_plugin = type("Rooms", (), {"JOINED_ROOMS": {
+        "room1": {"nick": "BotNick"},
+    }})()
+    bot.bot_plugins.plugins["rooms"] = room_plugin
+
+    pm.broadcast()
+
+    assert bot.calls == []
+    assert len(bot.sent_stanzas) == 2
+    global_presence, room_presence = bot.sent_stanzas
+    assert str(room_presence["to"]) == "room1/BotNick"
+    assert global_presence.xml.find("{vcard-temp:x:update}x") is not None
+    x = room_presence.xml.find("{vcard-temp:x:update}x")
+    assert x is not None
+    assert x.find("photo").text == "abc123"

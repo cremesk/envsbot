@@ -262,6 +262,7 @@ async def update_avatar(bot):
             avatar = f.read()
 
         image_hash = sha1(avatar)
+        bot.avatar_hash = image_hash
 
         # v2 marker forces one republish after this change, even if the old
         # avatar_hash.asc already contains the raw SHA1 from the XEP-0084-only
@@ -271,6 +272,8 @@ async def update_avatar(bot):
 
         if stored_hash == new_hash:
             log.info("[_REG_PROFILE] Avatar unchanged — skipping upload")
+            if hasattr(bot, "presence"):
+                bot.presence.broadcast()
             return
 
         if avatar_type not in ("image/png", "image/jpeg"):
@@ -297,6 +300,8 @@ async def update_avatar(bot):
         )
 
         write_hash(AVATAR_HASH_FILE, new_hash)
+        if hasattr(bot, "presence"):
+            bot.presence.broadcast()
         log.info("[_REG_PROFILE]✅ Avatar updated")
 
     except Exception as e:
@@ -391,3 +396,10 @@ async def on_ready(bot):
     store = bot.db.users.plugin("vcard")
     await store.set(str(bot.boundjid.bare), "TIMEZONE", config.get("timezone",
                                                                    "UTC"))
+
+    # Rooms are usually joined after this plugin's on_load hook has already
+    # published the avatar. Re-broadcast here so every joined MUC receives a
+    # directed XEP-0153 presence hash too. That makes the avatar visible to
+    # participants who do not have the bot as a roster contact.
+    if hasattr(bot, "presence"):
+        bot.presence.broadcast()

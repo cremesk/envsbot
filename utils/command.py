@@ -166,6 +166,11 @@ class CommandRegistry:
                 "handler": getattr(cmd.handler, "__name__", str(cmd.handler)),
                 "role": str(cmd.role),
                 "aliases": list(cmd.aliases),
+                "short": cmd.short,
+                "usage": cmd.usage,
+                "examples": list(cmd.examples),
+                "category": cmd.category,
+                "context": cmd.context,
             }
 
         return data
@@ -174,14 +179,23 @@ class CommandRegistry:
 @dataclass
 class Command:
     """
-    Represents a registered command, including its name, handler function,
-    required role for execution, and any aliases.
+    Represents a registered command.
+
+    The original command system only stored the callable, required role and
+    aliases.  The additional fields are optional and backwards compatible: old
+    plugins can keep using docstrings, while new or touched commands can expose
+    structured help data directly via the @command decorator.
     """
 
     name: str
     handler: Callable
     role: Role = Role.NONE
     aliases: List[str] = field(default_factory=list)
+    short: str = ""
+    usage: str = ""
+    examples: List[str] = field(default_factory=list)
+    category: str = ""
+    context: str = "any"
 
 
 COMMANDS = CommandRegistry()
@@ -215,13 +229,23 @@ def command(
     name: str,
     role: Role = Role.NONE,
     aliases: Optional[List[str]] = None,
+    short: str = "",
+    usage: str = "",
+    examples: Optional[List[str]] = None,
+    category: str = "",
+    context: str = "any",
 ):
     """
-    Decorator to register a function as a command with the given name,
-    required role, and optional aliases. Attaches metadata to the handler.
+    Decorator to register a function as a command.
+
+    Parameters beyond name/role/aliases are optional structured help metadata.
+    They intentionally keep the existing decorator API compatible, so current
+    plugins do not need to be changed at once.
     """
     if aliases is None:
         aliases = []
+    if examples is None:
+        examples = []
 
     def decorator(func: Callable):
         """
@@ -233,6 +257,11 @@ def command(
             handler=func,
             role=role,
             aliases=aliases,
+            short=short,
+            usage=usage,
+            examples=examples,
+            category=category,
+            context=context,
         )
 
         _register(name, cmd)
@@ -244,6 +273,11 @@ def command(
         func._command_names = [name] + aliases
         func._required_role = role
         func._aliases = aliases
+        func._command_short = short
+        func._command_usage = usage
+        func._command_examples = examples
+        func._command_category = category
+        func._command_context = context
 
         return func
 

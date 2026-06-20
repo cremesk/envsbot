@@ -99,8 +99,8 @@ class PresenceManager:
 
         try:
             self._send_presence()
-        except Exception as e:
-            log.exception(f"[PRESENCE] Failed to send presence: {e}")
+        except Exception:
+            log.exception("[PRESENCE] Failed to send presence")
 
         # --- Get JOINED_ROOMS from "rooms" plugin (safe access) ---
         try:

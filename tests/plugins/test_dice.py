@@ -8,6 +8,14 @@ from types import SimpleNamespace
 # --- Mock helpers
 
 
+async def _always_false(*_args, **_kwargs):
+    return False
+
+
+async def _always_true(*_args, **_kwargs):
+    return True
+
+
 class DummyStore:
     def __init__(self):
         self.data = {}
@@ -72,10 +80,8 @@ def reset_globals(monkeypatch):
 
 @pytest.fixture
 def bot(monkeypatch):
-    async def always_false(*a, **k): return False
-    async def always_true(*a, **k): return True
     # Patch handle_room_toggle_command to simulate always False
-    monkeypatch.setattr(dice, "handle_room_toggle_command", always_false)
+    monkeypatch.setattr(dice, "handle_room_toggle_command", _always_false)
     # Patch _get_enabled_rooms to always return a set with the test room
 
     async def fake_enabled_rooms(bot, key, plugin):
@@ -98,8 +104,7 @@ async def test_usage_message(bot):
 @pytest.mark.asyncio
 async def test_room_toggle_offers_status(monkeypatch, bot):
     # Now toggle returns True means plugin handled
-    async def always_true(*a, **k): return True
-    monkeypatch.setattr(dice, "handle_room_toggle_command", always_true)
+    monkeypatch.setattr(dice, "handle_room_toggle_command", _always_true)
     msg = {"from": SimpleNamespace(bare="roomA")}
     await dice.dice_command(bot, "u", "n", ["status"], msg, True)
     # Should return early, not reply anything further

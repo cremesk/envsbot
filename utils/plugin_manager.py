@@ -128,9 +128,8 @@ class PluginManager:
         """
         dependents = self._get_dependents(name)
         if dependents:
-            return (True,
-                    f"Plugins depend on {name}:"
-                    f"{', '.join(sorted(dependents))}")
+            dependents_list = ", ".join(sorted(dependents))
+            return True, f"Plugins depend on {name}: {dependents_list}"
         return False, ""
 
     def _validate_dependencies(self, name: str,

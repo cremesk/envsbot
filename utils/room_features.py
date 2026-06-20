@@ -32,6 +32,21 @@ def _normalize_plugin_name(name: str) -> str:
     return aliases.get(value, value)
 
 
+def _coerce_feature_flag(value: Any, fallback: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on", "enabled"}:
+            return True
+        if normalized in {"0", "false", "no", "off", "disabled", ""}:
+            return False
+    if value is None:
+        return fallback
+    return bool(value)
+
 def available_features() -> list[str]:
     rooms = _rooms_module()
     return sorted(rooms.PLUGIN_STORE_CONFIG)
@@ -55,7 +70,7 @@ async def _state_for(bot: Any, room_jid: str, plugin: str) -> RoomFeatureState:
         state = {}
 
     default = bool(rooms.PLUGIN_DEFAULTS.get(plugin, False))
-    enabled = bool(state.get(room_jid))
+    enabled = _coerce_feature_flag(state.get(room_jid), fallback=default)
     return RoomFeatureState(
         name=plugin,
         enabled=enabled,

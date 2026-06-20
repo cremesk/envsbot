@@ -156,7 +156,7 @@ class DatabaseManager:
 
         flush_task = self._flush_task
         if flush_task:
-            await flush_task
+            await asyncio.wait_for(asyncio.shield(flush_task), timeout=5)
 
         if self.conn:
             await self.conn.close()

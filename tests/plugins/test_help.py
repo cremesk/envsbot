@@ -3,7 +3,6 @@ from types import SimpleNamespace
 
 import plugins.help as help_plugin
 import utils.command as command_utils
-from utils.command import Command, Role, CommandRegistry
 
 import utils.config
 utils.config.config["prefix"] = ","
@@ -12,7 +11,7 @@ utils.config.config["prefix"] = ","
 # ----- Fixtures and Mocks -----
 
 class DummyBot:
-    def __init__(self, *, version="99.99-x", prefix=",", role=Role.ADMIN,
+    def __init__(self, *, version="99.99-x", prefix=",", role=command_utils.Role.ADMIN,
                  plugins=None):
         self.replies = []
         self.version = version
@@ -86,10 +85,10 @@ def basic_plugins_and_commands(monkeypatch):
         """Help docstring."""
         return None
 
-    foo_cmd = Command(name="foo", handler=foo_handler, role=Role.USER,
+    foo_cmd = command_utils.Command(name="foo", handler=foo_handler, role=command_utils.Role.USER,
                       aliases=["fooz"])
-    bar_cmd = Command(name="bar", handler=bar_handler, role=Role.ADMIN)
-    help_cmd = Command(name="help", handler=help_handler, role=Role.USER)
+    bar_cmd = command_utils.Command(name="bar", handler=bar_handler, role=command_utils.Role.ADMIN)
+    help_cmd = command_utils.Command(name="help", handler=help_handler, role=command_utils.Role.USER)
 
     plugins = {
         "foo": SimpleNamespace(__doc__="Foo plugin doc\nMore...",
@@ -99,7 +98,7 @@ def basic_plugins_and_commands(monkeypatch):
                                    __name__="_hidden"),
         "help": SimpleNamespace(__doc__="Help plugin doc", __name__="help"),
     }
-    registry = CommandRegistry()
+    registry = command_utils.CommandRegistry()
     monkeypatch.setattr(help_plugin, "COMMANDS", registry)
     monkeypatch.setattr(command_utils, "COMMANDS", registry)
     registry.register("foo", foo_cmd, "foo")
@@ -132,7 +131,7 @@ async def test_general_help_lists_plugins_and_commands(
     assert "bar" in reply
     assert "help" in reply
     # Hidden and no-cmd plugin filtered (because user is admin-permitted)
-    assert "_hidden" in reply  # visible to admin (Role.ADMIN)
+    assert "_hidden" in reply  # visible to admin (command_utils.Role.ADMIN)
     assert "Foo plugin doc" in reply
 
 
@@ -140,7 +139,7 @@ async def test_general_help_lists_plugins_and_commands(
 async def test_help_filters_hidden_and_no_cmd_plugins_for_user(
         basic_plugins_and_commands, monkeypatch):
     plugins, reg = basic_plugins_and_commands
-    bot = DummyBot(plugins=plugins, role=Role.USER)  # Regular (not admin)
+    bot = DummyBot(plugins=plugins, role=command_utils.Role.USER)  # Regular (not admin)
     msg = DummyMsg(body=",help")
     await help_plugin.cmd_help(bot, "user@host", "Alice", [], msg, True)
     reply = flatten_lines(bot.replies[-1])
@@ -167,7 +166,7 @@ async def test_command_help_happy_path(basic_plugins_and_commands):
 @pytest.mark.asyncio
 async def test_command_help_permission_denied(basic_plugins_and_commands):
     plugins, reg = basic_plugins_and_commands
-    bot = DummyBot(plugins=plugins, role=Role.USER)
+    bot = DummyBot(plugins=plugins, role=command_utils.Role.USER)
     msg = DummyMsg(body=",help ,bar")
     # bar is admin-only, this user is 'USER', so should reject
     await help_plugin.cmd_help(bot, "user@host", "Test", [",bar"], msg, True)
@@ -214,7 +213,7 @@ async def test_plugin_help_notfound(basic_plugins_and_commands):
 async def test_plugin_help_no_permission_for_internal(
         basic_plugins_and_commands):
     plugins, reg = basic_plugins_and_commands
-    bot = DummyBot(plugins=plugins, role=Role.USER)
+    bot = DummyBot(plugins=plugins, role=command_utils.Role.USER)
     msg = DummyMsg(body=",help _hidden")
     await help_plugin.cmd_help(bot, "user@host", "Test", ["_hidden"],
                                msg, True)

@@ -438,8 +438,6 @@ def fetch_url_title(url, max_redirects=5):
                         _, desc_found = extract_html_title_desc(buffer)
                     if title_found and desc_found:
                         break
-                    # if len(buffer) >= max_read:
-                    #     break
                 final_url = resp.url
                 if orig_fragment:
                     parsed_final = urlparse(final_url)

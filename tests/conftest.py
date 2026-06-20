@@ -17,7 +17,8 @@ def tmp_db_path(tmp_path):
     try:
         os.remove(db_path)
     except OSError:
-        pass
+        # The temporary file may already be removed by the test or fixture cleanup.
+        return
 
 
 @pytest.fixture

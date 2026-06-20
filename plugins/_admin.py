@@ -130,6 +130,7 @@ async def _get_bot_uptime(bot):
         bot_uptime = datetime.now() - BOT_START_TIME
         bot_uptime_str = human_time(bot_uptime.total_seconds())
         return [f"Bot Uptime: {bot_uptime_str}"]
+    return ["Bot Uptime: unknown"]
 
 
 async def _get_connection_time(bot):
@@ -145,6 +146,7 @@ async def _get_connection_time(bot):
     except Exception as e:
         log.debug("[ADMIN] Could not get connection uptime: %s", e)
         return ["Server Connection: unknown"]
+    return ["Server Connection: unknown"]
 
 
 async def _get_memory_usage(bot):

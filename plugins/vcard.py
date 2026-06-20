@@ -450,11 +450,6 @@ async def get_info(bot, msg, jid=None):
     except Exception as e:
         log.error(f"[VCARD] Exception during vCard lookup for '{jid}': {e}")
         raise
-    if not vcard:
-        log.warning(
-            f"[VCARD] Lookup failed: No vCard found for"
-            f" sender's nick '{jid}'.")
-        return None
     return vcard
 
 
@@ -485,15 +480,13 @@ def _extract_email_addresses(vcard):
     """Extract USERID from all EMAIL fields in the vCard XML."""
     emails = []
     for child in vcard.xml:
-        if child.tag.endswith("EMAIL"):
-            # Find USERID child element within the EMAIL
-            for email_child in child:
-                if email_child.tag.endswith("USERID") and email_child.text:
-                    # find USERID element and extract email address
-                    for email_child in child:
-                        if (email_child.tag.endswith("USERID")
-                                and email_child.text):
-                            emails.append(email_child.text.strip())
+        if not child.tag.endswith("EMAIL"):
+            continue
+
+        # Find USERID child element within the EMAIL entry.
+        for email_child in child:
+            if email_child.tag.endswith("USERID") and email_child.text:
+                emails.append(email_child.text.strip())
     return emails
 
 
@@ -974,7 +967,6 @@ async def get_birthday(bot, sender_jid, nick, args, msg, is_room):
                 "🔴  In direct messages, you can only look up your own"
                 " birthday. Use the command without args.")
             return
-        room = "Direct Message"
         jid = str(msg["from"].bare)
         display_name = jid
 

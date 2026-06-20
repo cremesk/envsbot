@@ -272,8 +272,8 @@ async def update_last_seen(bot, real_jid: str):
                 last_seen = datetime.fromisoformat(user["last_seen"])
                 if (now - last_seen).total_seconds() < 60:
                     return
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("[USERS] Could not parse last_seen for %s: %s", real_jid, exc)
 
         await bot.db.users.update_last_seen(real_jid)
 

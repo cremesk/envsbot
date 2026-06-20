@@ -30,8 +30,6 @@ async def db_status(bot, sender, nick, args, msg, is_room):
     path = Path(bot.db.path)
     size = path.stat().st_size if path.exists() else 0
 
-    integrity = "unknown"
-    page_count = page_size = freelist_count = None
     try:
         row = await bot.db.fetch_one("PRAGMA integrity_check")
         integrity = row[0] if row else "unknown"

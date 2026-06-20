@@ -492,8 +492,8 @@ class UserManager:
         except Exception:
             try:
                 await self.db.execute("ROLLBACK TO flush_checkpoint")
-            except Exception:
-                pass  # Rollback might also fail
+            except Exception as rollback_exc:
+                log.debug("[DB] Rollback after flush failure also failed: %s", rollback_exc)
             log.exception("[DB] FLUSH ALL FAILED!")
             raise
 

@@ -14,34 +14,41 @@ class PresenceStub(dict):
     """
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        # Populate both key and attribute for every kwarg
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-        # alias for handler code that uses pres.from instead of pres.from_
+        super().__init__(kwargs)
+        # Populate both key and attribute for every kwarg.
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+        # Alias for handler code that uses pres["from"] instead of pres.from_.
         if "from_" in kwargs:
             setattr(self, "from", kwargs["from_"])
             self["from"] = kwargs["from_"]
-        # always provide a fake XML
+
+        # Always provide a fake XML object for stanza-like access.
         if "xml" not in kwargs:
             self.xml = DummyXML()
             self["xml"] = self.xml
 
-    def __getattr__(self, item):
-        # allow attribute-style fallback for dict keys
-        try:
-            return self[item]
-        except KeyError:
-            raise AttributeError(item)
+    def __eq__(self, other):
+        if isinstance(other, dict):
+            return dict.__eq__(self, other)
+        return NotImplemented
+
+    def __ne__(self, other):
+        result = self.__eq__(other)
+        if result is NotImplemented:
+            return NotImplemented
+        return not result
 
     def __setattr__(self, key, value):
         super().__setattr__(key, value)
-        # keep dict and attribute access in sync
+        # Keep dict and attribute access in sync for test mutations.
         if key not in self:
             self[key] = value
 
-    def __getitem__(self, item):
-        # allow ['from'] to map to from_
-        if item == "from" and "from_" in self:
-            return self["from_"]
-        return super().__getitem__(item)
+    def __getattr__(self, item):
+        # Allow attribute-style fallback for dict keys.
+        try:
+            return self[item]
+        except KeyError as exc:
+            raise AttributeError(item) from exc

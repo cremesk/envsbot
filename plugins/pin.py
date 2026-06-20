@@ -121,8 +121,8 @@ def _room_key_from_msg(msg, is_room: bool) -> str | None:
         room = str(msg["from"].bare)
         if room in JOINED_ROOMS:
             return room
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("[PIN] Could not resolve room from message: %s", exc)
 
     return None
 
@@ -155,8 +155,8 @@ def _safe_get_sender_jid(msg, fallback=None) -> str | None:
         value = getattr(msg["from"], "bare", None)
         if value:
             return str(value)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("[PIN] Could not read sender bare JID: %s", exc)
 
     if fallback is not None:
         try:

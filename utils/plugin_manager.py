@@ -162,8 +162,10 @@ class PluginManager:
         # Check required dependencies
         for dep in meta.get("requires", []):
             if dep not in self.discover():
-                return False,
-                f"Plugin {name} requires {dep}, which is not available"
+                return (
+                    False,
+                    f"Plugin {name} requires {dep}, which is not available",
+                )
 
             # Recursively validate transitive dependencies
             valid, msg = self._validate_dependencies(dep, _visited.copy())

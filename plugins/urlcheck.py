@@ -179,7 +179,8 @@ def _extract_urls_from_message_text(text):
         for url in URL_RE.findall(line):
             parsed = urlparse(url) if url else None
             if parsed is not None and parsed.scheme in ("http", "https"):
-                if parsed.netloc.lower().endswith("reddit.com"):
+                hostname = (parsed.hostname or "").lower().rstrip(".")
+                if hostname == "reddit.com" or hostname.endswith(".reddit.com"):
                     continue
             urls.append(url)
 
@@ -275,8 +276,8 @@ async def _send_youtube_urlcheck_reply(
     if thread_id:
         try:
             message["thread"] = thread_id
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("[URLCHECK] Could not attach thread id to reply: %s", exc)
 
     if not has_xep_0511 and not has_xep_0392_link_metadata(msg):
         try:
@@ -334,8 +335,8 @@ async def _send_html_urlcheck_reply(
     if thread_id:
         try:
             message["thread"] = thread_id
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("[URLCHECK] Could not attach thread id to HTML reply: %s", exc)
 
         if not has_xep_0511 and not has_xep_0392_link_metadata(msg):
             try:

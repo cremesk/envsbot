@@ -393,13 +393,14 @@ async def acronyms_cmd(bot, sender, nick, args, msg, is_room):
     enabled_rooms = await _get_enabled_rooms(bot, INFO_KEY, "information")
     if msg["from"].bare not in enabled_rooms and (is_room or _is_muc_pm(msg)):
         bot.reply(msg, "ℹ️ Acronyms are disabled in this room.")
-        return
+        return None
 
     if not args:
-        return bot.reply(
+        bot.reply(
             msg,
             f"Usage: {bot.prefix}acronyms <acronym>"
         )
+        return None
     query = args[0].strip().lower()
     definitions = all_main_descriptions(query)
     if definitions:
@@ -408,16 +409,18 @@ async def acronyms_cmd(bot, sender, nick, args, msg, is_room):
             f"[ACRONYMS] Returned {len(definitions)} definitions for "
             f"acronym '{query}' from main list."
         )
-        return bot.reply(msg, lines)
+        bot.reply(msg, lines)
+        return None
     else:
         log.info(
             f"[ACRONYMS] User '{sender}' query '{query}' not found in main "
             f"database."
         )
-        return bot.reply(
+        bot.reply(
             msg,
             f"Sorry, '{query}' is not defined in my slang database."
         )
+        return None
 
 
 @command("acronyms add", aliases=["acro add", "acronym add"], role=Role.USER)
@@ -434,13 +437,14 @@ async def acronyms_add_cmd(bot, sender, nick, args, msg, is_room):
     enabled_rooms = await _get_enabled_rooms(bot, INFO_KEY, "information")
     if msg["from"].bare not in enabled_rooms and (is_room or _is_muc_pm(msg)):
         bot.reply(msg, "ℹ️ Acronyms are disabled in this room.")
-        return
+        return None
 
     if len(args) < 2:
-        return bot.reply(
+        bot.reply(
             msg,
             f"Usage: {bot.prefix}acronyms add <acronym> <description>"
         )
+        return None
     abbreviation = args[0].strip()
     description = " ".join(args[1:]).strip()
     if description_exists_in_main(abbreviation, description):
@@ -448,20 +452,22 @@ async def acronyms_add_cmd(bot, sender, nick, args, msg, is_room):
             f"[ACRONYMS] {sender} tried to queue existing main def: "
             f"{abbreviation}:{description}"
         )
-        return bot.reply(
+        bot.reply(
             msg,
             f"The definition for '{abbreviation}' already exists in the "
             f"database."
         )
+        return None
     if addition_exists(abbreviation, description):
         log.info(
             f"[ACRONYMS] {sender} tried to queue existing pending addition: "
             f"{abbreviation}:{description}"
         )
-        return bot.reply(
+        bot.reply(
             msg,
             "This suggestion is already awaiting admin review."
         )
+        return None
     os.makedirs(os.path.dirname(SLANG_ADDITIONS_CSV), exist_ok=True)
     with open(SLANG_ADDITIONS_CSV, "a", encoding="utf-8", newline="") as f:
         csv.writer(f).writerow([abbreviation, description, nick or sender])
@@ -469,11 +475,12 @@ async def acronyms_add_cmd(bot, sender, nick, args, msg, is_room):
         f"[ACRONYMS] Queued new addition by {sender}/{nick}: "
         f"{abbreviation}:{description}"
     )
-    return bot.reply(
+    bot.reply(
         msg,
         f"Suggestion for '{abbreviation}' was queued for admin review. "
         f"Thank you!"
     )
+    return None
 
 
 @command("acronyms remove", aliases=["acro remove", "acronym remove"],
@@ -491,29 +498,32 @@ async def acronyms_remove_cmd(bot, sender, nick, args, msg, is_room):
     enabled_rooms = await _get_enabled_rooms(bot, INFO_KEY, "information")
     if msg["from"].bare not in enabled_rooms and (is_room or _is_muc_pm(msg)):
         bot.reply(msg, "ℹ️ Acronyms are disabled in this room.")
-        return
+        return None
 
     if len(args) < 2:
-        return bot.reply(
+        bot.reply(
             msg,
             f"Usage: {bot.prefix}acronyms remove <acronym> <description>"
         )
+        return None
     abbreviation = args[0].strip()
     description = " ".join(args[1:]).strip()
     if not description_exists_in_main(abbreviation, description):
-        return bot.reply(
+        bot.reply(
             msg,
             "That definition doesn't exist in the main list."
         )
+        return None
     if removal_exists(abbreviation, description):
         log.info(
             f"[ACRONYMS] {sender} tried to queue existing pending removal: "
             f"{abbreviation}:{description}"
         )
-        return bot.reply(
+        bot.reply(
             msg,
             "This removal is already awaiting admin review."
         )
+        return None
     os.makedirs(os.path.dirname(SLANG_REMOVALS_CSV), exist_ok=True)
     with open(SLANG_REMOVALS_CSV, "a", encoding="utf-8", newline="") as f:
         csv.writer(f).writerow([abbreviation, description, nick or sender])
@@ -521,11 +531,12 @@ async def acronyms_remove_cmd(bot, sender, nick, args, msg, is_room):
         f"[ACRONYMS] Queued new removal by {sender}/{nick}: "
         f"{abbreviation}:{description}"
     )
-    return bot.reply(
+    bot.reply(
         msg,
         f"Removal suggestion for '{abbreviation}' was queued for admin "
         f"review. Thank you!"
     )
+    return None
 
 
 @command("acronyms list", aliases=["acro list", "acronym list"],
@@ -543,7 +554,7 @@ async def acronyms_list_cmd(bot, sender, nick, args, msg, is_room):
     enabled_rooms = await _get_enabled_rooms(bot, INFO_KEY, "information")
     if msg["from"].bare not in enabled_rooms and (is_room or _is_muc_pm(msg)):
         bot.reply(msg, "ℹ️ Acronyms are disabled in this room.")
-        return
+        return None
 
     addition_lines = []
     removal_lines = []
@@ -575,6 +586,7 @@ async def acronyms_list_cmd(bot, sender, nick, args, msg, is_room):
     else:
         sections.append("No pending removals.")
     bot.reply(msg, "\n\n".join(sections))
+    return None
 
 
 @command("acronyms merge", aliases=["acro merge", "acronym merge"],
@@ -592,7 +604,7 @@ async def acronyms_merge_cmd(bot, sender, nick, args, msg, is_room):
     enabled_rooms = await _get_enabled_rooms(bot, INFO_KEY, "information")
     if msg["from"].bare not in enabled_rooms and (is_room or _is_muc_pm(msg)):
         bot.reply(msg, "ℹ️ Acronyms are disabled in this room.")
-        return
+        return None
 
     main_entries = []
     if os.path.exists(SLANG_CSV):
@@ -648,6 +660,7 @@ async def acronyms_merge_cmd(bot, sender, nick, args, msg, is_room):
         f"Merged {new_add_count} additions and {removed_count} removals "
         f"into the slang database."
     )
+    return None
 
 
 @command("acronyms delete", aliases=["acro delete", "acronym delete"],
@@ -668,14 +681,15 @@ async def acronyms_delete_cmd(bot, sender, nick, args, msg, is_room):
     enabled_rooms = await _get_enabled_rooms(bot, INFO_KEY, "information")
     if msg["from"].bare not in enabled_rooms and (is_room or _is_muc_pm(msg)):
         bot.reply(msg, "ℹ️ Acronyms are disabled in this room.")
-        return
+        return None
 
     if not args:
-        return bot.reply(
+        bot.reply(
             msg,
             f"Usage: {bot.prefix}acronyms delete <acronym> <description> OR "
             f"{bot.prefix}acronyms delete <nick>"
         )
+        return None
     total_removed = 0
     if len(args) == 1:
         # Delete all additions/removals made by that nick
@@ -702,6 +716,7 @@ async def acronyms_delete_cmd(bot, sender, nick, args, msg, is_room):
                 f"No pending additions/removals found for nick "
                 f"'{args[0].strip()}'."
             )
+        return None
     else:
         abbreviation = args[0].strip().lower()
         description = " ".join(args[1:]).strip().lower()
@@ -732,6 +747,7 @@ async def acronyms_delete_cmd(bot, sender, nick, args, msg, is_room):
                 f"No pending addition/removal found for "
                 f"'{abbreviation}: {description}'."
             )
+        return None
 
 # ----------------- Information Plugin Toggle -----------------
 
@@ -749,7 +765,7 @@ async def information_command(bot, sender_jid, nick, args, msg, is_room):
             msg,
             f"Usage: {config.get('prefix', ',')}info on|off|status"
         )
-        return
+        return None
 
     if is_room or _is_muc_pm(msg):
         handled = await handle_room_toggle_command(
@@ -764,12 +780,13 @@ async def information_command(bot, sender_jid, nick, args, msg, is_room):
             log_prefix="[INFORMATION]",
         )
         if handled:
-            return
+            return None
 
     bot.reply(
         msg,
         "Usage: {prefix}information on|off|status (in a room or PM)"
     )
+    return None
 
 
 async def get_info_store(bot):

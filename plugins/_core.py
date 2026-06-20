@@ -422,15 +422,15 @@ def get_stanza_id(msg) -> str | None:
             value = stanza_id.get("id")
             if value:
                 return str(value)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("[CORE] Could not read stanza_id: %s", exc)
 
     try:
         msg_id = msg.get("id")
         if msg_id:
             return str(msg_id)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("[CORE] Could not read message id: %s", exc)
 
     return None
 
@@ -464,8 +464,8 @@ def get_reply_target(msg) -> str | None:
                 value = reply.get("id")
                 if value:
                     return str(value)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("[CORE] Could not read reply target: %s", exc)
 
     return None
 

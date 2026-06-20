@@ -18,7 +18,7 @@ import urllib
 from plugins import _core
 from plugins import vcard
 from utils.command import command, Role
-from utils.config import config     # !!! DO NOT REMOVE! NEEDED FOR TESTS !!!
+from utils.config import config  # intentionally exposed for tests and runtime settings
 from plugins.rooms import JOINED_ROOMS
 
 log = logging.getLogger(__name__)
@@ -33,8 +33,6 @@ PLUGIN_META = {
 }
 
 WEATHER_KEY = "WEATHER"
-
-log = logging.getLogger(__name__)
 
 
 async def get_display_name(bot, jid):
@@ -179,8 +177,9 @@ async def _handle_weather_dm(bot, msg, args):
         )
         bot.reply(
             msg,
-            "🔴  In a DM, you cannot specify a different nick."
-            "Just use the command without arguments to get your weather.",
+            "🔴  In a DM, you cannot specify a different nick. "
+            f"Just use {config.get('prefix', ',')}weather without arguments "
+            "to get your weather.",
         )
         return
 

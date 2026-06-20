@@ -435,7 +435,7 @@ async def _check_user_birthday(bot, user_jid_str: str, nick: str, room_jid):
             nick,
             user_jid_str,
             room_jid_str,
-            birthday,
+            "present" if birthday else "missing",
         )
 
         if not birthday:
@@ -447,8 +447,7 @@ async def _check_user_birthday(bot, user_jid_str: str, nick: str, room_jid):
         age = _calculate_age(birthday)
 
         if age is not None:
-            msg_text = f"🎉 Happy Birthday {
-                nick}! You're turning {age} today! 🎂"
+            msg_text = f"🎉 Happy Birthday {nick}! You're turning {age} today! 🎂"
         else:
             msg_text = f"🎉 Happy Birthday {nick}! 🎂"
 
@@ -650,7 +649,7 @@ async def on_ready(bot):
             try:
                 await _BIRTHDAY_CHECK_TASK
             except asyncio.CancelledError:
-                pass
+                log.debug("[BIRTHDAY] Previous birthday check task cancelled")
 
         _BIRTHDAY_CHECK_TASK = asyncio.create_task(_birthday_check_loop(bot))
 
@@ -688,7 +687,7 @@ async def on_unload(bot):
             try:
                 await _BIRTHDAY_CHECK_TASK
             except asyncio.CancelledError:
-                pass
+                log.debug("[BIRTHDAY] Birthday check task cancelled during unload")
 
         _BIRTHDAY_CHECK_TASK = None
 

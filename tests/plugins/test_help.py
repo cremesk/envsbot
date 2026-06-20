@@ -2,7 +2,7 @@ import pytest
 from types import SimpleNamespace
 
 import plugins.help as help_plugin
-import utils.command
+import utils.command as command_utils
 from utils.command import Command, Role, CommandRegistry
 
 import utils.config
@@ -101,7 +101,7 @@ def basic_plugins_and_commands(monkeypatch):
     }
     registry = CommandRegistry()
     monkeypatch.setattr(help_plugin, "COMMANDS", registry)
-    monkeypatch.setattr(utils.command, "COMMANDS", registry)
+    monkeypatch.setattr(command_utils, "COMMANDS", registry)
     registry.register("foo", foo_cmd, "foo")
     registry.register("bar", bar_cmd, "bar")
     registry.register("help", help_cmd, "help")

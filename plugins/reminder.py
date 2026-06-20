@@ -828,7 +828,7 @@ async def _cancel_all_active_tasks() -> int:
         try:
             await task
         except asyncio.CancelledError:
-            pass
+            log.debug("[REMINDER] Reminder task %s cancelled", reminder_id)
         except Exception as exc:
             log.exception(
                 "[REMINDER] Error cancelling reminder %s: %s",
@@ -861,7 +861,7 @@ async def _cancel_active_tasks_for_room(bot, room_jid: str) -> int:
         try:
             await task
         except asyncio.CancelledError:
-            pass
+            log.debug("[REMINDER] Room reminder task %s cancelled", reminder_id)
         except Exception as exc:
             log.exception(
                 "[REMINDER] Error cancelling room reminder %s: %s",
@@ -1153,7 +1153,7 @@ async def delete_reminder(bot, sender_jid, nick, args, msg, is_room):
             try:
                 await task
             except asyncio.CancelledError:
-                pass
+                log.debug("[REMINDER] Deleted reminder task %s cancelled", reminder_id)
 
         bot.reply(msg, f"✅ Reminder {reminder_id} deleted.")
         log.info("[REMINDER] Deleted reminder %s", reminder_id)

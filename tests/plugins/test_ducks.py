@@ -79,6 +79,31 @@ def clear_ducks_state():
     ducks.EXPIRE_TASKS.clear()
 
 
+
+
+def true_func(*a, **k):
+    return True
+
+
+def false_func(*a, **k):
+    return False
+
+
+async def true_async(*a, **k):
+    return True
+
+
+async def false_async(*a, **k):
+    return False
+
+
+async def fake_jid(*a, **k):
+    return ("jid/alice", None, None)
+
+
+async def ensure_user(*a, **k):
+    return None
+
 def patch_ducks(monkeypatch, **kw):
     for k, v in kw.items():
         monkeypatch.setattr(ducks, k, v)
@@ -88,12 +113,6 @@ def patch_ducks(monkeypatch, **kw):
 async def test_duck_command_handles_room_toggle(monkeypatch):
     bot = DummyBot()
     msg = DummyMsg()
-    def true_func(*a, **k): return True
-    def false_func(*a, **k): return False
-    async def true_async(*a, **k): return True
-    async def false_async(*a, **k): return False
-    async def fake_jid(*a, **k): return ("jid/alice", None, None)
-    async def ensure_user(*a, **k): return None
     patch_ducks(
         monkeypatch,
         handle_room_toggle_command=true_async,
@@ -121,12 +140,6 @@ async def test_duck_command_handles_room_toggle(monkeypatch):
 async def test_duck_command_usage(monkeypatch):
     bot = DummyBot()
     msg = DummyMsg()
-    def true_func(*a, **k): return True
-    def false_func(*a, **k): return False
-    async def true_async(*a, **k): return True
-    async def false_async(*a, **k): return False
-    async def fake_jid(*a, **k): return ("jid/alice", None, None)
-    async def ensure_user(*a, **k): return None
     patch_ducks(
         monkeypatch,
         handle_room_toggle_command=false_async,
@@ -143,12 +156,6 @@ async def test_duck_command_subcommands(monkeypatch):
     bot = DummyBot()
     msg = DummyMsg()
     room = msg.from_.bare
-    def true_func(*a, **k): return True
-    def false_func(*a, **k): return False
-    async def true_async(*a, **k): return True
-    async def false_async(*a, **k): return False
-    async def fake_jid(*a, **k): return ("jid/alice", None, None)
-    async def ensure_user(*a, **k): return None
     patch_ducks(
         monkeypatch,
         handle_room_toggle_command=false_async,
@@ -177,12 +184,6 @@ async def test_duck_command_friends_and_enemies(monkeypatch):
                                     "befriended": 2, "trapped": 3}}}
     bot = DummyBot(global_index=global_index)
     msg = DummyMsg()
-    def true_func(*a, **k): return True
-    def false_func(*a, **k): return False
-    async def true_async(*a, **k): return True
-    async def false_async(*a, **k): return False
-    async def fake_jid(*a, **k): return ("jid/alice", None, None)
-    async def ensure_user(*a, **k): return None
     patch_ducks(
         monkeypatch,
         handle_room_toggle_command=false_async,
@@ -209,12 +210,6 @@ async def test_duck_command_stats_path(monkeypatch):
     }
     bot = DummyBot(user_stats=userstats)
     msg = DummyMsg()
-    def true_func(*a, **k): return True
-    def false_func(*a, **k): return False
-    async def true_async(*a, **k): return True
-    async def false_async(*a, **k): return False
-    async def fake_jid(*a, **k): return ("jid/alice", None, None)
-    async def ensure_user(*a, **k): return None
     patch_ducks(
         monkeypatch,
         handle_room_toggle_command=false_async,
@@ -239,12 +234,6 @@ async def test_bef_and_trap_commands(monkeypatch):
     bot = DummyBot()
     msg = DummyMsg()
     room = msg.from_.bare
-    def true_func(*a, **k): return True
-    def false_func(*a, **k): return False
-    async def true_async(*a, **k): return True
-    async def false_async(*a, **k): return False
-    async def fake_jid(*a, **k): return ("jid/alice", None, None)
-    async def ensure_user(*a, **k): return None
     patch_ducks(
         monkeypatch,
         _is_public_muc=true_func,
@@ -264,12 +253,6 @@ async def test_bef_and_trap_commands(monkeypatch):
 async def test_bef_trap_disabled_and_not_public(monkeypatch):
     bot = DummyBot()
     msg = DummyMsg()
-    def true_func(*a, **k): return True
-    def false_func(*a, **k): return False
-    async def true_async(*a, **k): return True
-    async def false_async(*a, **k): return False
-    async def fake_jid(*a, **k): return ("jid/alice", None, None)
-    async def ensure_user(*a, **k): return None
     patch_ducks(monkeypatch, _is_public_muc=false_func,
                 _is_enabled_for_room=false_async)
     await ducks.bef_command(bot, "jid", "nick", [], msg, True)
@@ -289,12 +272,6 @@ async def test_duckstats_command(monkeypatch):
     }
     bot = DummyBot(user_stats=userstats)
     msg = DummyMsg()
-    def true_func(*a, **k): return True
-    def false_func(*a, **k): return False
-    async def true_async(*a, **k): return True
-    async def false_async(*a, **k): return False
-    async def fake_jid(*a, **k): return ("jid/alice", None, None)
-    async def ensure_user(*a, **k): return None
     patch_ducks(
         monkeypatch,
         _is_public_muc=true_func,
@@ -344,7 +321,6 @@ async def test_handle_duck_action_success(monkeypatch):
     async def fake_get_real_jid(bot, msg):
         return ("jid/alice", None, None)
 
-    async def ensure_user(*a, **k): return None
     patch_ducks(monkeypatch, get_real_jid=fake_get_real_jid,
                 _ensure_user_exists=ensure_user)
     await ducks._handle_duck_action(bot, msg, "befriended")

@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from utils.command import Role, command
-from utils.config import BASE_DIR, ConfigError, config, load_config, validate_config
+from utils.config import ConfigError, config, load_config, validate_config
 from utils.formatting import format_page, parse_page_args
 
 PLUGIN_META = {

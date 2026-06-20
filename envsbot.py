@@ -133,7 +133,7 @@ class Bot(slixmpp.ClientXMPP):
                     "[ADMIN] Bot restart notification sent to %s",
                     notif["sender"])
         except FileNotFoundError:
-            pass  # Expected if no restart notification
+            log.debug("[ADMIN] No restart notification file found")
         except Exception as e:
             log.error("[ADMIN] Failed to process restart notification: %s", e)
 
@@ -442,8 +442,8 @@ class Bot(slixmpp.ClientXMPP):
         try:
             room = msg['from'].bare
             nick = msg.get("mucnick") or msg["from"].resource
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("[MUC] Could not resolve message room/nick: %s", exc)
         return room, nick
 
     def _resolve_sender_jid(self, msg, sender_jid, nick):
@@ -669,9 +669,8 @@ if __name__ == "__main__":
         log.warning(f"[INIT] 🔴 Source file {SOURCE} not found."
                     "Skipping copy.")
     else:
-        log.info(f"[INIT] ✅ Target file {
-                 TARGET} already exists. Skipping copy.")
+        log.info("[INIT] ✅ Target file %s already exists. Skipping copy.", TARGET)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        pass
+        log.info("[INIT] Shutdown requested by keyboard interrupt")

@@ -329,9 +329,9 @@ async def test_get_birthday_from_vcard(monkeypatch, bot):
 async def test_get_birthday_cached_or_live(monkeypatch, bot):
     # Should use cache, or fallback to vcard, or negative cache
     calls = {"vcard": 0}
-    async def fake_vcard(
-        bot, room, nick): calls["vcard"] += 1
-    return (True, "1960-12-30")
+    async def fake_vcard(bot, room, nick):
+        calls["vcard"] += 1
+        return (True, "1960-12-30")
     monkeypatch.setattr(
         birthday_notify, "_get_birthday_from_vcard", fake_vcard)
     # No cache, uses vcard and caches it

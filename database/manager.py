@@ -154,8 +154,9 @@ class DatabaseManager:
         # signal shutdown
         self._stop_event.set()
 
-        if self._flush_task:
-            await self._flush_task
+        flush_task = self._flush_task
+        if flush_task:
+            await flush_task
 
         if self.conn:
             await self.conn.close()

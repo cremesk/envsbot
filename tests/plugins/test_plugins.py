@@ -7,10 +7,6 @@ import plugins.plugins as plugins_module
 @pytest.fixture
 def bot():
     """Mock a 'bot' object for plugin command handlers."""
-    class DummyMsg(dict):
-        def __init__(self, **kwargs):
-            super().__init__(**kwargs)
-            self.update(kwargs)
     m = MagicMock(name="bot")
     m.reply = MagicMock()
     m.prefix = ","

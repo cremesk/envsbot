@@ -1,169 +1,201 @@
-# EnvsBot [![Build Status](https://drone.envs.net/api/badges/dan/envsbot/status.svg)](https://drone.envs.net/dan/envsbot)
+# EnvsBot - Modular XMPP Bot Framework - [![Build Status](https://drone.envs.net/api/badges/envs/envsbot/status.svg)](https://drone.envs.net/envs/envsbot)
+
+EnvsBot is a modular XMPP bot for rooms and direct chats, built with Python and slixmpp.
+It provides a plugin-based command framework, room-specific feature toggles, user/role management, SQLite persistence, generated command documentation, vCard/avatar publishing, and a growing set of utility, community and fun plugins.
+
+The bot was originally developed for the **envs pubnix/tilde** community and follows the spirit of classic tilde bots: useful, extensible, friendly in shared rooms, and easy to run on a small server.
 
 ---
 
-A modular XMPP bot built with Python 3 and slixmpp. The minimum version of
-Python required is &gt;=3.12
+## Features
+
+* Modular plugin architecture with dynamic load, unload and reload support
+* Decorator-based command registry with roles, aliases, usage metadata and generated help
+* Generated command reference in [`docs/commands.md`](docs/commands.md)
+* XMPP MUC and direct-message command handling
+* Room management with persistent autojoin rooms and per-room plugin toggles
+* User registration, role management, last-seen tracking and nickname lookup
+* Safe runtime config inspection, validation and reload commands
+* SQLite-backed persistence with online status checks and documented offline maintenance
+* vCard and avatar support via XEP-0054, XEP-0084 and XEP-0153
+* RSS/Atom feed watcher for room announcements
+* URL metadata checks for links, files and YouTube videos
+* Weather, vCard lookup, XMPP diagnostics, reminders, polls, pins, tell messages and utility commands
+* Community/fun plugins such as ducks, dice, karma, sed corrections and XKCD
+* Pytest-based test suite and Drone CI support
 
 ---
 
-**Mirrors:**
-- https://git.envs.net/dan/envsbot
-- https://github.com/dan-envs/envsbot
+## Mirrors
+
+* `https://git.envs.net/envs/envsbot`
+* `https://github.com/envs-net/envsbot`
 
 ---
 
-## 🌐 envs pubnix/tilde
+## Installation / Quickstart
 
-EnvsBot is developed with the **envs pubnix** environment in mind, but is not limited to it. It takes the tildebot IRC bot as model and hopefully will include all of its features and more (especially in XMPP groupchats and DMs).
+Requires **Python 3.12+**.
 
----
+```bash
+sudo useradd -m -s /bin/bash envsbot -d /srv/envsbot
+sudo su - envsbot
 
-## About
+cd /srv/envsbot
+git clone https://git.envs.net/envs/envsbot.git
+cd envsbot
 
-EnvsBot is now stable and is released under the `v1.2.0` tag, although you should use the most recent git version for bug fixes: the core framework is stable, although probably not bug-free (that's always an ongoing process), supports dynamic plugin loading, and provides a structured command system. These are some of the features for now:
+python3 -m venv venv
+source venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
 
-- Plugin-based architecture
-- Dynamic plugin loading/reloading
-- Command decorators to mark bot commands with name, minimum role and aliases
-- SQLite-backed database layer
-- Generated command reference in [`docs/commands.md`](docs/commands.md)
+cp config_sample.json config.json
+$EDITOR config.json
 
----
+cp vcard_sample.py vcard.py
+$EDITOR vcard.py
 
-## Available Plugins
-
-Below is a complete list of Python plugins currently available in `plugins/`, each with a short summary.
-
-### **_admin**
-> Administrative bot management commands for restart, shutdown, and runtime status/statistics.
-
-### **_core**
-> Internal shared helper plugin providing common utilities for other plugins, such as JID resolution, room permission checks, and room toggle helpers.
-
-### **_reg_profile**
-> Bot profile initialization plugin. Publishes or updates the bot's vCard and avatar on startup or reload, avoiding unnecessary network updates when nothing changed.
-
-### **birthday_notify**
-> Automatic birthday notification plugin for rooms. Announces birthdays for present users in opted-in rooms, with per-room enable/disable support and cached vCard birthday lookups.
-
-### **dice**
-> Dice rolling plugin with support for standard dice notation, modifiers, and optional success/failure target checks.
-
-### **ducks**
-> Duck game plugin for MUCs. Randomly spawns ducks in enabled rooms, lets users befriend or trap them, and keeps persistent stats and leaderboards.
-
-### **help**
-> Dynamic help system for plugins and commands, including multi-word commands and per-room in-room help toggling.
-
-### **info**
-> Information lookup plugin with commands for Wikipedia summaries, latest Fediverse posts, Urban Dictionary searches and the local acronym database, with per-room toggling.
-
-### **karma**
-> Room-local karma tracking plugin using `nick++` / `nick--`, with leaderboards and per-room enable/disable support.
-
-### **pin**
-> Room pinning plugin for saving, listing, showing, and deleting pinned messages, including reply-based pinning and fallback pinning of recent messages.
-
-### **plugins**
-> Runtime plugin management commands for listing, loading, unloading, reloading, and inspecting plugins.
-
-### **config_cmd**
-> Safe runtime config inspection, validation and reload commands with secret redaction.
-
-### **db**
-> SQLite status and integrity inspection helpers. Offline maintenance is documented in `docs/maintenance.md`.
-
-### **poll**
-> Room poll plugin with multiple simultaneous polls, voting, history, optional timed auto-close, and moderation/creator management controls.
-
-### **reminder**
-> Reminder scheduling plugin that lets users create and receive timed reminders after specified intervals.
-
-### **rooms**
-> Room management and persistence plugin for managing joined MUC rooms, autojoin behavior, and related room configuration, including per-room plugin enable/disable controls.
-
-### **rss**
-> RSS/Atom feed watcher plugin that monitors subscribed feeds and posts new entries into configured rooms.
-
-### **sed**
-> Sed-style message correction plugin for fixing previous messages with regex or literal substitutions, with per-room enable/disable support.
-
-### **presence**
-> Bot presence/status plugin for viewing and changing the bot's XMPP presence state and optional status message.
-
-### **tell**
-> Offline message plugin that stores messages for users and delivers them when they join the room again.
-
-### **tools**
-> General utility plugin with commands like ping/pong, echo, time/date lookups by timezone, UTC display, and Unix timestamp conversion. Has also a "seen" command.
-
-### **urlcheck**
-> URL metadata plugin that watches room messages for links and posts page titles, descriptions, file info, or YouTube metadata while avoiding duplicate spam.
-
-### **users**
-> User management plugin with automatic user registration, last-seen tracking, room nickname tracking, user lookup, role changes, and user deletion.
-
-### **vcard**
-> vCard lookup and profile plugin for retrieving public user profile information such as names, birthdays, URLs, organization, and location-related fields.
-
-### **weather**
-> Weather plugin that shows current weather for a user's configured vCard location, usable in rooms, MUC PMs, or direct messages.
-
-### **xkcd**
-> XKCD plugin that fetches latest, specific, random, or searched comics and can automatically post new comics to subscribed rooms.
-
-### **xmpp**
-> XMPP utility plugin with diagnostics and lookup commands such as ping, version, service discovery, uptime, SRV lookups, and compliance checks.
+python envsbot.py
+```
 
 ---
 
-## Installation
-Remember that the minimum version of Python is `Python3.12`.
+## Minimal Configuration
 
-1. **Clone the repository:**
-   ```sh
-   git clone https://github.com/yourusername/envsbot.git
-   cd envsbot
-   ```
+Copy `config_sample.json` to `config.json` and set at least:
 
-2. **Create a virtual environment (recommended):**
-   ```sh
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
+```json
+{
+  "jid": "envsbot@example.org",
+  "password": "secret",
+  "nick": "EnvsBot",
+  "timezone": "Europe/Berlin",
+  "owner": "admin@example.org",
+  "prefix": ",",
+  "db": "bot.db",
+  "stop_cmd": ["/usr/bin/systemctl", "--user", "stop", "envsbot.service"],
+  "avatar": "avatar.jpg",
+  "avatar_type": "image/jpeg"
+}
+```
 
-3. **Install dependencies:**
-   ```sh
-   pip install -r requirements.txt
-   ```
+Optional `host` and `port` values can be used when the XMPP server address differs from the JID domain or default client port.
 
-4. **Configure the bot:**
-    - Copy `config_sample.json` to `config.json` and edit with your XMPP credentials and settings.
+Runtime-safe configuration checks are available through:
 
-5. **Configure your vCard for the bot**
-    - Copy `vcard_sample.py` to `vcard.py` and edit with your desired bot profile information, such as name, nickname, birthday, URLs, notes and location. The bot uses the CTRY (country) -> REGION (state) -> LOCALITY (city) for weather information, using the most exact field provided. The complete address is not shown in lookups. You can set all fields a XMPP vCard is allowed to contain. Look at [XEP-0054](https://xmpp.org/extensions/xep-0054.html) for more information on vCard fields.
-    - **NOTE**: Even if you can set your TZ (timezone) in your vcard, the bot doesn't recognize TZ entries in any vCard from anyone. Users have to set their timezone manually with the ",tz set &lt;IANA timezone identifier&gt;" command.
+```text
+,config show
+,config validate
+,config reload
+```
 
-6. **Run the bot:**
-   ```sh
-   python envsbot.py
-   ```
+Secrets such as passwords and API keys are redacted in bot output.
 
 ---
 
-## Example Service File for systemd
+## vCard and Avatar
+
+Copy `vcard_sample.py` to `vcard.py` and adjust the bot profile. EnvsBot can publish profile data and an avatar through XMPP vCard/PEP mechanisms.
+
+Avatar-related config keys:
+
+```json
+{
+  "avatar": "avatar.jpg",
+  "avatar_type": "image/jpeg"
+}
+```
+
+Supported avatar MIME types are usually `image/jpeg` and `image/png`. The bot publishes the avatar hash in presence so MUC occupants can discover the avatar even if they do not have the bot in their roster.
+
+---
+
+## Important Commands
+
+Examples assume the default command prefix `,`.
+
+| Command | Description |
+| --- | --- |
+| `,help` | Show available help topics and commands |
+| `,help all` | Show the full visible help output |
+| `,help <plugin>` | Show focused help for one plugin |
+| `,help <command>` | Show focused help for one command |
+| `,bot status` | Show bot, database, plugin and room status |
+| `,config show [all/page/last]` | Show redacted runtime configuration |
+| `,config validate` | Validate `config.json` |
+| `,config reload` | Reload runtime-safe configuration |
+| `,db status` | Show SQLite path, size and integrity status |
+| `,plugins list [all/page/last]` | List loaded plugins |
+| `,plugins load <name>` | Load a plugin at runtime |
+| `,plugins unload <name>` | Unload a plugin at runtime |
+| `,plugins reload <name>` | Reload a plugin at runtime |
+| `,rooms list [all/page/last]` | List known rooms |
+| `,rooms add <room_jid> <nick> [autojoin]` | Add a room to the database |
+| `,rooms join <room_jid> [nick]` | Join a room immediately |
+| `,rooms leave <room_jid>` | Leave a room |
+| `,rooms plugins [all/page/last]` | Show plugin states for the current room |
+| `,rooms enable <plugin>` | Enable a room-toggleable plugin for this room |
+| `,rooms disable <plugin>` | Disable a room-toggleable plugin for this room |
+| `,users roles` | Show available user roles |
+| `,users admins [all/page/last]` | List privileged users |
+| `,users role <jid> <role>` | Change a user's role |
+
+For paginated commands, `all` disables paging and prints the full result set. Full reference: [`docs/commands.md`](docs/commands.md).
+
+---
+
+## Plugins
+
+Core and administration:
+
+* `_admin` - restart, shutdown and runtime status/statistics
+* `_core` - shared helpers for plugins
+* `_reg_profile` - startup profile, vCard and avatar publishing
+* `help` - dynamic command and plugin help
+* `plugins` - runtime plugin management
+* `rooms` - room persistence, joining and per-room feature toggles
+* `users` - user registration, roles, admin listings and last-seen tracking
+* `config_cmd` - safe config inspection, validation and reload
+* `db` - SQLite online status checks
+* `presence` - bot presence/status controls
+
+Room, utility and community plugins:
+
+* `birthday_notify` - birthday announcements for opted-in rooms
+* `dice` - dice rolling with common notation
+* `ducks` - duck game with persistent stats
+* `info` - Wikipedia, Fediverse, Urban Dictionary and acronym helpers
+* `karma` - room-local karma tracking
+* `pin` - save and manage pinned messages
+* `poll` - room polls with voting and history
+* `reminder` - timed reminders
+* `rss` - RSS/Atom feed watcher
+* `sed` - sed-style message corrections
+* `tell` - offline messages delivered when users rejoin
+* `tools` - ping, echo, time/date, seen and timestamp helpers
+* `urlcheck` - URL title, metadata, file and YouTube lookup
+* `vcard` - public vCard lookup helpers
+* `weather` - weather lookup from configured location data
+* `xkcd` - latest, random, specific and searched XKCD comics
+* `xmpp` - XMPP diagnostics, discovery, uptime, version and SRV checks
+
+---
+
+## Systemd Service
+
+Example service unit:
 
 ```ini
-description=EnvsBot XMPP Bot
-After=network-online.target prosody.service
+[Unit]
+Description=EnvsBot XMPP Bot
+After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=envsbot
 Group=envsbot
-
 WorkingDirectory=/srv/envsbot/envsbot
 ExecStart=/srv/envsbot/envsbot/venv/bin/python /srv/envsbot/envsbot/envsbot.py
 
@@ -171,17 +203,14 @@ Restart=always
 RestartSec=5s
 StartLimitIntervalSec=300
 StartLimitBurst=10
-# Needed to for restarts to correctly close the DB before starting again
+
+# Give the process time to close the SQLite database before a restart.
 ExecStopPost=/usr/bin/sleep 5
 
-# Optional, but advisably:
 Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
 
-# Logs go to journalctl if uncommented
-#StandardOutput=journal
-#StandardError=journal
-
-# Clean Exit
 KillSignal=SIGINT
 TimeoutStopSec=30
 
@@ -189,21 +218,86 @@ TimeoutStopSec=30
 WantedBy=multi-user.target
 ```
 
+Install and start:
+
+```bash
+sudo install -m 0644 envsbot.service /etc/systemd/system/envsbot.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now envsbot.service
+journalctl -u envsbot.service -f
+```
+
+Adjust paths, user and group for your installation.
+
 ---
 
-## TODO
+## SQLite Maintenance
 
-- [X] Plugin Management Plugin \[core\]
-- [X] User Management Plugin \[core\]
-- [X] Room Management Plugin \[core\]
-- [X] Create Test Suite
-- [X] Add more plugins
-- [ ] Improve documentation and usage examples
-- [X] Choosable Plugins per room
-- [X] Improve documentation for configuration file
+Use `,db status` for safe online status and integrity checks.
+
+Do **not** run `VACUUM` from inside the live bot process. Stop the bot first and perform maintenance manually:
+
+```bash
+systemctl stop envsbot.service
+
+sqlite3 bot.db "PRAGMA integrity_check;"
+sqlite3 bot.db "PRAGMA optimize;"
+sqlite3 bot.db "VACUUM;"
+
+systemctl start envsbot.service
+```
+
+See [`docs/maintenance.md`](docs/maintenance.md).
+
+---
+
+## Tests and CI
+
+Install development dependencies and run the test suite:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+pytest
+```
+
+Run without coverage when you only want a quick local check:
+
+```bash
+pytest --no-cov -q
+```
+
+Drone CI is configured in `.drone.yml`.
+
+---
+
+## Documentation
+
+* [`docs/commands.md`](docs/commands.md) - generated command reference
+* [`docs/maintenance.md`](docs/maintenance.md) - offline SQLite maintenance
+
+Regenerate the command reference after changing command metadata:
+
+```bash
+python scripts/generate_commands_md.py
+```
+
+---
+
+## Security Notes
+
+* Keep `config.json` private; it contains the bot password and optional API keys.
+* Use a dedicated XMPP account for the bot.
+* Give Owner/Superadmin roles only to trusted administrators.
+* Runtime config output redacts known secret values, but logs and local files should still be protected.
+* `VACUUM` and other SQLite rewrite operations should be run only while the bot is stopped.
+* Review loaded plugins before enabling them in public rooms.
 
 ---
 
 ## License
 
-This project is licensed under the **GPL-3.0-only** License. See the [LICENSE](LICENSE) file for details. Future versions of the GPL License are explicitly excluded.
+This project is licensed under the **GPL-3.0-only** license. See [`LICENSE`](LICENSE) for details. Future versions of the GPL license are explicitly excluded.

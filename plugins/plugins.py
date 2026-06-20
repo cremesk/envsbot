@@ -10,6 +10,7 @@ All commands rely on the async PluginManager API.
 import logging
 from utils.command import command, Role
 from utils.config import config
+from utils.formatting import format_page, parse_page_args
 
 log = logging.getLogger(__name__)
 
@@ -25,31 +26,33 @@ prefix = config.get("prefix", ",")
 
 @command("plugin list", role=Role.ADMIN, aliases=["plugins list"])
 async def plugin_list(bot, sender, nick, args, msg, is_room):
-    """
-    List all plugins grouped by category.
-
-    Shows both loaded and available (not loaded) plugins.
-
-    Usage:
-        {prefix}plugins list
-    """
+    """List all plugins grouped by category."""
     categories = await bot.bot_plugins.list_detailed()
+    page = parse_page_args(args)
 
-    lines = ["Plugin status"]
-
+    entries = []
     for category in sorted(categories):
         block = categories[category]
-
-        lines.append("")
-        lines.append(f"[{category.upper()}]")
-
+        entries.append(f"[{category.upper()}]")
         for name in sorted(block["loaded"]):
-            lines.append(f"  [loaded] {name}")
-
+            entries.append(f"[loaded] {name}")
         for name in sorted(block["available"]):
-            lines.append(f"  [not loaded] {name}")
+            entries.append(f"[not loaded] {name}")
+        entries.append("")
 
-    bot.reply(msg, "\n".join(lines))
+    if entries and entries[-1] == "":
+        entries.pop()
+
+    bot.reply(
+        msg,
+        format_page(
+            "📦 Plugin status",
+            entries,
+            page_request=page,
+            page_size=14,
+            command_hint=f"{bot.prefix}plugins list",
+        ),
+    )
 
 
 @command("plugin info", role=Role.ADMIN, aliases=["plugins info"])

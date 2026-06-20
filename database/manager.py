@@ -51,8 +51,10 @@ class DatabaseManager:
         self.users = UserManager(self.conn)
         self.rooms = Rooms(self.conn)
 
+        await self._init_schema_migrations()
         await self.users.init()
         await self.rooms.init()
+        await self.mark_migration_applied("0001_initial_runtime_tables")
 
         # add asyncio sqlite3 stop event
         self._stop_event = asyncio.Event()
@@ -60,6 +62,38 @@ class DatabaseManager:
         # start background flush task
         self._running = True
         self._flush_task = asyncio.create_task(self._flush_loop())
+
+
+    async def _init_schema_migrations(self):
+        """Create the lightweight migration bookkeeping table."""
+        await self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version TEXT PRIMARY KEY,
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        await self.conn.commit()
+
+    async def mark_migration_applied(self, version: str):
+        """Mark a schema migration as applied.
+
+        envsbot currently has simple idempotent table creation.  This table is
+        intentionally tiny but gives future schema changes a safe place to land.
+        """
+        await self.conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)",
+            (version,),
+        )
+        await self.conn.commit()
+
+    async def list_migrations(self):
+        """Return applied schema migrations."""
+        cursor = await self.conn.execute(
+            "SELECT version, applied_at FROM schema_migrations ORDER BY version"
+        )
+        return await cursor.fetchall()
 
     async def _flush_loop(self):
         """Background loop that flushes data periodically with retry logic."""

@@ -361,6 +361,26 @@ class Bot(slixmpp.ClientXMPP):
         if hasattr(msg, "replies"):
             msg.replies.append(text)
 
+    def reply_ok(self, msg, text, **kwargs):
+        """Send a success reply with a consistent prefix."""
+        self.reply(msg, f"✅ {text}", **kwargs)
+
+    def reply_info(self, msg, text, **kwargs):
+        """Send an informational reply with a consistent prefix."""
+        self.reply(msg, f"ℹ️ {text}", **kwargs)
+
+    def reply_warn(self, msg, text, **kwargs):
+        """Send a warning reply with a consistent prefix."""
+        self.reply(msg, f"🟡️ {text}", **kwargs)
+
+    def reply_error(self, msg, text, **kwargs):
+        """Send an error reply with a consistent prefix."""
+        self.reply(msg, f"🔴 {text}", **kwargs)
+
+    def reply_usage(self, msg, usage, **kwargs):
+        """Send a command usage reply."""
+        self.reply_warn(msg, f"Usage: {usage}", **kwargs)
+
     def reply(self, msg, text, mention=True, thread=True, rate_limit=True,
               ephemeral=False):
         """

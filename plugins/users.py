@@ -23,6 +23,7 @@ from slixmpp import JID
 
 from utils.config import config
 from utils.command import command, Role, role_from_int
+from utils.formatting import format_page, parse_page_args
 
 log = logging.getLogger(__name__)
 
@@ -460,8 +461,7 @@ async def users_update(bot, sender, nick, args, msg, is_room):
         # --- Check argument list ---
         if len(args) != 2:
             log.warning("[USERS] 🟡️ users update wrong number of args")
-            bot.reply(msg, (f"🟡️ Usage: {prefix}users update"
-                            " <jid> <role>"))
+            bot.reply_usage(msg, f"{prefix}users role <jid> <role>")
             return
 
         # --- get sender role ---
@@ -513,6 +513,11 @@ async def users_update(bot, sender, nick, args, msg, is_room):
             bot.reply(msg, "⛔ Setting Role of 'OWNER' is forbidden!")
             return
 
+        # --- only the owner may grant superadmin ---
+        if new_role == Role.SUPERADMIN and sender_role != Role.OWNER:
+            bot.reply(msg, "⛔ Only the owner can assign superadmin.")
+            return
+
         # --- prevent self-escalation ---
         if jid == receiver and new_role.value < sender_role.value:
             bot.reply(msg, "⛔ You cannot raise your own role.")
@@ -540,6 +545,54 @@ async def users_update(bot, sender, nick, args, msg, is_room):
     except Exception:
         log.exception("[USERS] 🔴  users update failed")
         bot.reply(msg, "🟡️ Failed to update user.")
+
+
+@command("users roles", role=Role.ADMIN, aliases=["user roles"])
+async def users_roles(bot, sender, nick, args, msg, is_room):
+    """Show available roles and their ordering."""
+    lines = [
+        "👥 Roles",
+        "Lower numbers have higher privileges.",
+        "",
+    ]
+    for role in Role:
+        lines.append(f"• {role.name.lower():10} = {role.value}")
+    lines += [
+        "",
+        "Protection rules:",
+        "• owner comes only from config.json",
+        "• only owner can assign superadmin",
+        "• users cannot promote themselves",
+        "• users cannot modify/delete equal or higher roles",
+    ]
+    bot.reply(msg, lines)
+
+
+@command("users admins", role=Role.ADMIN, aliases=["user admins", "users admin", "user admin"])
+async def users_admins(bot, sender, nick, args, msg, is_room):
+    """List users with admin-level roles."""
+    users = await bot.db.users.list()
+    page = parse_page_args(args)
+    lines = []
+    for user in users:
+        role = role_from_int(int(user.get("role", Role.USER.value)))
+        if role <= Role.ADMIN:
+            lines.append(f"• {user['jid']} — {role.name.lower()}")
+
+    owner = config.get("owner")
+    if owner and not any(line.startswith(f"• {owner} ") for line in lines):
+        lines.insert(0, f"• {owner} — owner (config)")
+
+    bot.reply(
+        msg,
+        format_page(
+            "👥 Admin users",
+            lines,
+            page_request=page,
+            page_size=12,
+            command_hint=f"{bot.prefix}users admins",
+        ),
+    )
 
 
 @command("users delete", role=Role.ADMIN, aliases=["user delete"])
@@ -570,6 +623,15 @@ async def users_delete(bot, sender, nick, args, msg, is_room):
         if not user:
             log.warning(f"[USERS] 🟡️ Delete failed, user not found: {jid}")
             bot.reply(msg, f"🟡️ User not found: {jid}")
+            return
+
+        target_role = role_from_int(user.get("role", Role.USER.value))
+        sender_role = await bot.get_user_role(sender)
+        if target_role <= Role.SUPERADMIN and sender_role != Role.OWNER:
+            bot.reply(msg, "⛔ Only the owner can delete owner/superadmin users.")
+            return
+        if sender_role <= Role.ADMIN and target_role <= sender_role and str(JID(sender).bare) != jid:
+            bot.reply(msg, "⛔ You cannot delete users with equal or higher role.")
             return
 
         await um.delete(jid)

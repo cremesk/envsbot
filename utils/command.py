@@ -10,6 +10,8 @@ from enum import IntEnum
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
+from utils.command_help import metadata_for
+
 
 class Role(IntEnum):
     """
@@ -244,8 +246,18 @@ def command(
     """
     if aliases is None:
         aliases = []
+
+    defaults = metadata_for(name)
+    if not short:
+        short = str(defaults.get("short", ""))
+    if not usage:
+        usage = str(defaults.get("usage", ""))
     if examples is None:
-        examples = []
+        examples = list(defaults.get("examples", []) or [])
+    if not category:
+        category = str(defaults.get("category", ""))
+    if context == "any" and defaults.get("context"):
+        context = str(defaults.get("context"))
 
     def decorator(func: Callable):
         """

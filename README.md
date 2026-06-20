@@ -27,6 +27,7 @@ EnvsBot is now stable and is released under the `v1.2.0` tag, although you shoul
 - Dynamic plugin loading/reloading
 - Command decorators to mark bot commands with name, minimum role and aliases
 - SQLite-backed database layer
+- Generated command reference in [`docs/commands.md`](docs/commands.md)
 
 ---
 
@@ -67,6 +68,12 @@ Below is a complete list of Python plugins currently available in `plugins/`, ea
 ### **plugins**
 > Runtime plugin management commands for listing, loading, unloading, reloading, and inspecting plugins.
 
+### **config_cmd**
+> Safe runtime config inspection, validation and reload commands with secret redaction.
+
+### **db**
+> SQLite status and integrity inspection helpers. Offline maintenance is documented in `docs/maintenance.md`.
+
 ### **poll**
 > Room poll plugin with multiple simultaneous polls, voting, history, optional timed auto-close, and moderation/creator management controls.
 
@@ -74,7 +81,7 @@ Below is a complete list of Python plugins currently available in `plugins/`, ea
 > Reminder scheduling plugin that lets users create and receive timed reminders after specified intervals.
 
 ### **rooms**
-> Room management and persistence plugin for managing joined MUC rooms, autojoin behavior, and related room configuration.
+> Room management and persistence plugin for managing joined MUC rooms, autojoin behavior, and related room configuration, including per-room plugin enable/disable controls.
 
 ### **rss**
 > RSS/Atom feed watcher plugin that monitors subscribed feeds and posts new entries into configured rooms.
@@ -82,7 +89,7 @@ Below is a complete list of Python plugins currently available in `plugins/`, ea
 ### **sed**
 > Sed-style message correction plugin for fixing previous messages with regex or literal substitutions, with per-room enable/disable support.
 
-### **status**
+### **presence**
 > Bot presence/status plugin for viewing and changing the bot's XMPP presence state and optional status message.
 
 ### **tell**

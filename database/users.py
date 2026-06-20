@@ -320,6 +320,22 @@ class UserManager:
         self._dirty_users.add(jid)
         return user
 
+    async def list(self):
+        """Return all users as dictionaries, including cached updates."""
+        cursor = await self.db.execute(
+            "SELECT * FROM users ORDER BY role ASC, jid ASC"
+        )
+        rows = [dict(row) for row in await cursor.fetchall()]
+        seen = {row["jid"] for row in rows}
+
+        for jid, user in self._users_cache.items():
+            if jid in seen:
+                rows = [user if row["jid"] == jid else row for row in rows]
+            else:
+                rows.append(user)
+
+        return sorted(rows, key=lambda row: (int(row.get("role", 80)), row.get("jid", "")))
+
     async def update_last_seen(self, jid):
         now = datetime.now(timezone.utc).isoformat()
         await self.set(jid, "last_seen", now)

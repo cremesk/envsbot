@@ -24,6 +24,13 @@ from functools import partial
 
 from utils.command import command, Role
 from utils.config import config
+from utils.formatting import format_page, parse_page_args
+from utils.room_features import (
+    format_room_feature_line,
+    get_room_feature,
+    list_room_features,
+    set_room_feature,
+)
 
 log = logging.getLogger(__name__)
 
@@ -494,75 +501,82 @@ async def cmd_room_setdefaults(bot, sender_jid, nick, args, msg, is_room):
 # -------------------------------------------------
 @command("rooms plugins", role=Role.MODERATOR, aliases=["room plugins"])
 async def cmd_room_plugins(bot, sender_jid, nick, args, msg, is_room):
-    """
-    Show recent plugin setup for current room.
-
-    Usage: {prefix}room plugins
-    """
+    """Show plugin setup for the current room."""
     if is_room:
-        bot.reply(msg,
-                  "🔴 This command can only be used in MUC PMs to the bot.")
+        bot.reply_error(
+            msg,
+            "This command can only be used in MUC PMs to the bot.",
+        )
         return
-    if len(args) != 0:
-        bot.reply(msg, f"🟡️ Usage: {bot.prefix}room plugins")
-        return
+
     room_jid = msg['from'].bare
     if room_jid not in JOINED_ROOMS:
-        bot.reply(msg,
-                  f"🔴 Room '{room_jid}' is not currently joined."
-                  f" Please join the room first to view plugin settings.")
-        log.warning(f"[ROOMS] 🟡️ Room '{
-                    room_jid}' not joined for plugins command!")
+        bot.reply_error(
+            msg,
+            f"Room '{room_jid}' is not currently joined. "
+            "Please join the room first to view plugin settings.",
+        )
+        log.warning("[ROOMS] room %s not joined for plugins command", room_jid)
         return
 
-    lines = [f"📋 Plugin settings for room '{room_jid}'"]
-    for plugin, should_enable in PLUGIN_DEFAULTS.items():
-        conf = PLUGIN_STORE_CONFIG[plugin]
-        typ = conf["type"]
-        key = conf["key"]
-        store = bot.db.users.plugin(plugin)
+    page = parse_page_args(args)
+    states = await list_room_features(bot, room_jid)
+    feature_lines = [format_room_feature_line(state) for state in states]
+    lines = format_page(
+        f"📋 Plugin settings for room '{room_jid}'",
+        feature_lines,
+        page_request=page,
+        page_size=12,
+        command_hint=f"{bot.prefix}rooms plugins",
+    )
 
-        if typ == "dict":
-            state = await store.get_global(key, default={})
-            if not isinstance(state, dict):
-                state = {}
+    log.info("[ROOMS] displaying plugin settings for room %s", room_jid)
+    bot.reply(msg, lines)
 
-            line = f"• {plugin}: {
-                'enabled' if state.get(room_jid) else 'disabled'}"
-            line += "  |  Default: "
-            default = "on" if PLUGIN_DEFAULTS.get(plugin, False) else "off"
-            line += default
-            modified = (PLUGIN_DEFAULTS.get(plugin, False)
-                        != bool(state.get(room_jid)))
-            line += " (modified)" if modified else ""
-            lines.append(line)
 
-        elif typ == "list":
-            list_field = conf.get("list_field", "rooms")
-            state = await store.get_global(key, default={list_field: []})
-            if not isinstance(state, dict):
-                state = {list_field: []}
+async def _handle_room_feature_toggle(bot, msg, is_room, args, *, enabled: bool):
+    """Shared implementation for rooms enable/disable."""
+    if is_room:
+        bot.reply_error(msg, "This command can only be used in MUC PMs to the bot.")
+        return
+    if len(args) != 1:
+        action = "enable" if enabled else "disable"
+        bot.reply_usage(msg, f"{bot.prefix}rooms {action} <plugin>")
+        return
 
-            rooms = state.get(list_field, [])
-            if not isinstance(rooms, list):
-                rooms = []
+    room_jid = msg['from'].bare
+    if room_jid not in JOINED_ROOMS:
+        bot.reply_error(msg, f"Room '{room_jid}' is not currently joined.")
+        return
 
-            line = f"• {plugin}: {
-                'enabled' if room_jid in rooms else 'disabled'}"
-            line += "  |  Default: "
-            default = "on" if PLUGIN_DEFAULTS.get(plugin, False) else "off"
-            line += default
-            modified = (PLUGIN_DEFAULTS.get(
-                plugin, False) != (room_jid in rooms))
-            line += " (modified)" if modified else ""
-            lines.append(line)
+    plugin = args[0].lower()
+    try:
+        previous = await get_room_feature(bot, room_jid, plugin)
+        state = await set_room_feature(bot, room_jid, plugin, enabled)
+    except KeyError:
+        bot.reply_warn(
+            msg,
+            f"Unknown room plugin '{plugin}'. Use {bot.prefix}rooms plugins to list valid names.",
+        )
+        return
 
-        else:
-            raise ValueError(f"Unsupported storage type: {
-                             typ} for plugin {plugin}")
+    if previous.enabled == state.enabled:
+        bot.reply_info(msg, f"{state.name} is already {format_room_feature_line(state).split(': ', 1)[1]}.")
+        return
 
-    log.info(f"[ROOMS] Displaying plugin settings for room '{room_jid}'")
-    bot.reply(msg, "\n".join(lines))
+    bot.reply_ok(msg, f"{state.name} is now {'enabled' if state.enabled else 'disabled'} for {room_jid}.")
+
+
+@command("rooms enable", role=Role.MODERATOR, aliases=["room enable"])
+async def cmd_room_enable(bot, sender_jid, nick, args, msg, is_room):
+    """Enable a room-scoped plugin for the current room."""
+    await _handle_room_feature_toggle(bot, msg, is_room, args, enabled=True)
+
+
+@command("rooms disable", role=Role.MODERATOR, aliases=["room disable"])
+async def cmd_room_disable(bot, sender_jid, nick, args, msg, is_room):
+    """Disable a room-scoped plugin for the current room."""
+    await _handle_room_feature_toggle(bot, msg, is_room, args, enabled=False)
 
 
 # -------------------------------------------------
@@ -787,58 +801,57 @@ async def rooms_delete(bot, sender_jid, nick, args, msg, is_room):
 
 @command("rooms list", role=Role.ADMIN, aliases=["room list"])
 async def rooms_list(bot, sender_jid, nick, args, msg, is_room):
-    """
-    Show all rooms stored in the database, if they are autojoin or not.
-
-    Command
-    -------
-    {prefix}rooms list
-    """
+    """Show stored and currently joined rooms."""
 
     rows = await bot.db.rooms.list()
+    page = parse_page_args(args)
 
-    if not rows:
-        bot.reply(msg, "ℹ️ No rooms stored.")
-        return
-
-    header = f"{'ROOM':40} {'NICK':15} {'AUTOJOIN':8} {'JOINED':6} {'STATUS'}"
-    lines = ["📋 Stored rooms", header, "-" * len(header)]
-
-    for room_jid, nick_name, autojoin, status in rows:
-
-        autojoin_flag = "yes" if autojoin else "no"
-        joined_flag = "yes" if room_jid in JOINED_ROOMS else "no"
-
-        lines.append(
-            f"{room_jid:40} {nick_name:15} {autojoin_flag:8} {joined_flag:6}"
-            f" {status}"
-        )
-
-    header = (f"{'ROOM':40} {'NICK':15} {'AFFILIATION':10} {'ROLE':10}"
-              f" {'AUTOJOIN':8} {'STATUS'}")
-    lines += ["", "📋 JOINED rooms", header, "-" * len(header)]
-
-    # Make defensive copy to avoid race conditions
-    joined_rooms_copy = dict(JOINED_ROOMS)
-    for room, data in joined_rooms_copy.items():
-        try:
-            nick = data.get("nick", "unknown")
-            affiliation = data.get("affiliation", "unknown")
-            role = data.get("role", "unknown")
-            autojoin = data.get("autojoin", False)
-            status = data.get("status") or ""
+    details = []
+    if rows:
+        details.append("Stored rooms:")
+        for room_jid, nick_name, autojoin, status in rows:
             autojoin_flag = "yes" if autojoin else "no"
-
-            # Only display status if not empty and not empty JSON
+            joined_flag = "yes" if room_jid in JOINED_ROOMS else "no"
             status_display = status if status and status != "{}" else ""
+            details.append(
+                f"• {room_jid} | nick={nick_name} | autojoin={autojoin_flag} "
+                f"| joined={joined_flag} | status={status_display or '—'}"
+            )
+    else:
+        details.append("Stored rooms: —")
 
-            lines.append(f"{room:40} {nick:15} {affiliation:10} {role:10}"
-                         f" {autojoin_flag:8} {status_display}")
-        except Exception as e:
-            log.debug(f"[ROOMS] Error formatting room info for {room}: {e}")
+    details.append("")
+    details.append("Joined rooms:")
+    joined_rooms_copy = dict(JOINED_ROOMS)
+    if joined_rooms_copy:
+        for room, data in sorted(joined_rooms_copy.items()):
+            try:
+                nick_name = data.get("nick", "unknown")
+                affiliation = data.get("affiliation", "unknown")
+                role = data.get("role", "unknown")
+                autojoin = "yes" if data.get("autojoin", False) else "no"
+                status = data.get("status") or "—"
+                if status == "{}":
+                    status = "—"
+                details.append(
+                    f"• {room} | nick={nick_name} | affiliation={affiliation} "
+                    f"| role={role} | autojoin={autojoin} | status={status}"
+                )
+            except Exception as e:
+                log.debug("[ROOMS] Error formatting room info for %s: %s", room, e)
+    else:
+        details.append("Joined rooms: —")
 
-    output = "\n".join(lines)
-    bot.reply(msg, f"{output}")
+    bot.reply(
+        msg,
+        format_page(
+            "📋 Rooms",
+            details,
+            page_request=page,
+            page_size=12,
+            command_hint=f"{bot.prefix}rooms list",
+        ),
+    )
 
 
 # -------------------------------------------------

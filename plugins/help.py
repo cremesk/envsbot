@@ -11,6 +11,8 @@ Usage
   {prefix}help commands
   {prefix}help plugins
   {prefix}help roles
+  {prefix}help categories
+  {prefix}help category <name>
   {prefix}help <plugin>
   {prefix}help <command>
   {prefix}help {prefix}<command>
@@ -49,7 +51,7 @@ HELP_KEY = "HELP"
 
 PLUGIN_META = {
     "name": "help",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "description": "Dynamic help for plugins and commands.",
     "category": "core",
     "requires": ["_core"],
@@ -246,10 +248,6 @@ def _format_command_detail(cmd_obj, prefix: str) -> list[str]:
         for example in examples:
             lines.append(f"  {example}")
 
-    doc = _clean_doc(cmd_obj.handler.__doc__, prefix)
-    if doc:
-        lines += ["", "Details:", doc]
-
     return lines
 
 
@@ -295,12 +293,13 @@ async def _sender_role(bot, sender_jid, msg) -> tuple[Role, str | None]:
     "help",
     aliases=["h"],
     short="Show help for plugins and commands.",
-    usage="{prefix}help [all|commands|plugins|roles|<plugin>|<command>]",
+    usage="{prefix}help [all|commands|plugins|roles|categories|category <name>|<plugin>|<command>]",
     examples=[
         "{prefix}help",
         "{prefix}help rooms",
         "{prefix}help rooms add",
         "{prefix}help {prefix}users role",
+        "{prefix}help category rooms",
     ],
 )
 async def cmd_help(bot, sender_jid, nick, args, msg, is_room):
@@ -329,6 +328,13 @@ async def cmd_help(bot, sender_jid, nick, args, msg, is_room):
         return
     if query_lc == "roles":
         bot.reply(msg, _roles())
+        return
+    if query_lc == "categories":
+        bot.reply(msg, await _categories(bot, role))
+        return
+    if query_lc.startswith("category "):
+        category = query_lc.split(None, 1)[1].strip()
+        bot.reply(msg, await _category(bot, role, category))
         return
 
     # Focused command help. Accept both ",help ,rooms add" and
@@ -368,6 +374,8 @@ async def _general(bot, role: Role) -> list[str]:
         f"• {bot.prefix}help <plugin> — plugin-specific help",
         f"• {bot.prefix}help <command> — focused command help",
         f"• {bot.prefix}help roles — role overview",
+        f"• {bot.prefix}help categories — list command categories",
+        f"• {bot.prefix}help category <name> — commands in one category",
         "",
         "Loaded plugins:",
     ]
@@ -380,7 +388,7 @@ async def _general(bot, role: Role) -> list[str]:
 
     lines += [
         "",
-        f"Tip: use {bot.prefix}help all for a full command overview.",
+        f"Tip: use {bot.prefix}help commands for a category-based overview or {bot.prefix}help all for everything.",
     ]
     return lines
 
@@ -407,16 +415,65 @@ async def _plugins(bot, role: Role) -> list[str]:
     return lines
 
 
-async def _commands(bot, role: Role) -> list[str]:
-    lines = ["🧭 Commands", ""]
-    grouped: dict[str, list[str]] = {}
+def _category_name(cmd_obj) -> str:
+    category = getattr(cmd_obj, "category", "") or "other"
+    return str(category).strip().lower() or "other"
 
+
+def _category_title(category: str) -> str:
+    return category.replace("_", " ").replace("-", " ").title()
+
+
+def _commands_by_category(bot, role: Role) -> dict[str, list[tuple[str, object]]]:
+    grouped: dict[str, list[tuple[str, object]]] = {}
     for plugin_name, cmd in _all_visible_commands(bot, role):
-        grouped.setdefault(plugin_name, []).append(_format_command_line(cmd, bot.prefix))
+        grouped.setdefault(_category_name(cmd), []).append((plugin_name, cmd))
+    for commands in grouped.values():
+        commands.sort(key=lambda item: (item[1].name, item[0]))
+    return grouped
 
-    for plugin_name in sorted(grouped):
-        lines.append(f"{plugin_name}:")
-        lines.extend(grouped[plugin_name])
+
+async def _categories(bot, role: Role) -> list[str]:
+    grouped = _commands_by_category(bot, role)
+    lines = ["🗂️ Help categories", ""]
+    if not grouped:
+        return lines + ["No commands available for your role."]
+
+    for category in sorted(grouped):
+        lines.append(
+            f"• {category} — {len(grouped[category])} command(s). "
+            f"Use {bot.prefix}help category {category}"
+        )
+    return lines
+
+
+async def _category(bot, role: Role, category: str) -> list[str]:
+    category = category.strip().lower()
+    grouped = _commands_by_category(bot, role)
+    if category not in grouped:
+        return [
+            "🟡️ Unknown help category.",
+            "",
+            f"Use {bot.prefix}help categories to list available categories.",
+        ]
+
+    lines = [f"🗂️ {_category_title(category)} commands", ""]
+    for _plugin_name, cmd in grouped[category]:
+        lines.append(_format_command_line(cmd, bot.prefix))
+    return lines
+
+
+async def _commands(bot, role: Role) -> list[str]:
+    lines = ["🧭 Commands by category", ""]
+    grouped = _commands_by_category(bot, role)
+
+    if not grouped:
+        return lines + ["No commands available for your role."]
+
+    for category in sorted(grouped):
+        lines.append(f"{_category_title(category)}:")
+        for _plugin_name, cmd in grouped[category]:
+            lines.append(_format_command_line(cmd, bot.prefix))
         lines.append("")
 
     if lines[-1] == "":
@@ -489,6 +546,9 @@ def _roles() -> list[str]:
         "• user — normal user commands",
         "• new / none — limited or unknown users",
         "• banned — no command access",
+        "",
+        "Only the configured owner should be able to grant superadmin rights.",
+        "Privileged commands are normally intended for private chats or MUC PMs.",
     ]
 
 

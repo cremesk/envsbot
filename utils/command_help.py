@@ -10,8 +10,8 @@ from __future__ import annotations
 COMMAND_HELP: dict[str, dict[str, object]] = {
     "help": {
         "short": "Show help for plugins and commands.",
-        "usage": "{prefix}help [all|commands|plugins|roles|<plugin>|<command>]",
-        "examples": ["{prefix}help", "{prefix}help rooms", "{prefix}help rooms add"],
+        "usage": "{prefix}help [all|commands|plugins|roles|categories|category <name>|<plugin>|<command>]",
+        "examples": ["{prefix}help", "{prefix}help rooms", "{prefix}help rooms add", "{prefix}help category rooms"],
         "category": "core",
     },
     "help inroom": {

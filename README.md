@@ -11,7 +11,7 @@ The bot was originally developed for the **envs pubnix/tilde** community and fol
 
 * Modular plugin architecture with dynamic load, unload and reload support
 * Decorator-based command registry with roles, aliases, usage metadata and generated help
-* Generated command reference in [`docs/commands.md`](docs/commands.md)
+* Generated command reference in [`docs/commands.md`](docs/commands.md) and runtime help guide in [`docs/help.md`](docs/help.md)
 * XMPP MUC and direct-message command handling
 * Room management with persistent autojoin rooms and per-room plugin toggles
 * User registration, role management, last-seen tracking and nickname lookup
@@ -276,7 +276,9 @@ Drone CI is configured in `.drone.yml`.
 
 ## Documentation
 
+* [`docs/README.md`](docs/README.md) - documentation index
 * [`docs/commands.md`](docs/commands.md) - generated command reference
+* [`docs/help.md`](docs/help.md) - runtime help guide
 * [`docs/maintenance.md`](docs/maintenance.md) - offline SQLite maintenance
 
 Regenerate the command reference after changing command metadata:

@@ -1,8 +1,14 @@
 """Structured command help metadata for built-in plugins.
 
-The command decorator can be used with explicit metadata.  This module fills in
+The command decorator can be used with explicit metadata. This module fills in
 sensible defaults for existing commands so runtime help and generated docs stay
 complete while plugins are gradually cleaned up.
+
+Usage string notation used in this module:
+- ``{prefix}``: runtime command prefix placeholder.
+- ``[optional]``: optional argument or segment.
+- ``<required>``: required argument value.
+- ``a|b``: alternatives; choose one listed option.
 """
 
 from __future__ import annotations

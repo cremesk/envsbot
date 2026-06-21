@@ -495,7 +495,10 @@ async def _check_room_birthdays(bot, room_jid: str):
         if not isinstance(nicks_data, dict):
             return
 
-        for nick, nick_info in nicks_data.items():
+        # JOINED_ROOMS is updated by live MUC presence events.
+        # Take a snapshot so joins/leaves during the birthday check do not
+        # mutate the dictionary while we iterate over it.
+        for nick, nick_info in tuple(nicks_data.items()):
             if not isinstance(nick_info, dict):
                 continue
 
@@ -526,7 +529,10 @@ async def _check_and_announce_birthdays(bot):
     try:
         log.info("[BIRTHDAY] Already announced: %s", ANNOUNCED_TODAY)
 
-        for room_jid in JOINED_ROOMS:
+        # JOINED_ROOMS may change while the periodic task is running.
+        # Iterate over a snapshot to avoid RuntimeError on concurrent
+        # joins/leaves or room reloads.
+        for room_jid in tuple(JOINED_ROOMS):
             await _check_room_birthdays(bot, str(room_jid))
 
     except Exception as exc:

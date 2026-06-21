@@ -256,6 +256,45 @@ async def test_check_and_announce_birthdays(monkeypatch, bot):
 
 
 @pytest.mark.asyncio
+async def test_check_room_birthdays_uses_nick_snapshot(monkeypatch, bot):
+    room = "room1@conf"
+    nicks = {
+        "NickA": {"jid": "jidA"},
+        "NickB": {"jid": "jidB"},
+    }
+    birthday_notify.JOINED_ROOMS[room] = {"nicks": nicks}
+    called = []
+
+    async def check_user(bot, user_jid, nick, room_jid):
+        called.append((user_jid, nick, room_jid))
+        nicks[f"New{len(called)}"] = {"jid": f"new{len(called)}"}
+
+    monkeypatch.setattr(birthday_notify, "_check_user_birthday", check_user)
+
+    await birthday_notify._check_room_birthdays(bot, room)
+
+    assert called == [("jidA", "NickA", room), ("jidB", "NickB", room)]
+
+
+@pytest.mark.asyncio
+async def test_check_and_announce_birthdays_uses_room_snapshot(monkeypatch, bot):
+    checked = []
+    birthday_notify.JOINED_ROOMS["roomA@conf"] = {"nicks": {}}
+    birthday_notify.JOINED_ROOMS["roomB@conf"] = {"nicks": {}}
+
+    async def _check_room_birthdays(bot, room_jid):
+        checked.append(room_jid)
+        birthday_notify.JOINED_ROOMS[f"room{len(checked)}@conf"] = {"nicks": {}}
+
+    monkeypatch.setattr(
+        birthday_notify, "_check_room_birthdays", _check_room_birthdays)
+
+    await birthday_notify._check_and_announce_birthdays(bot)
+
+    assert checked == ["roomA@conf", "roomB@conf"]
+
+
+@pytest.mark.asyncio
 async def test_birthday_notify_command_usage(bot):
     # Always returns False, so sends usage text
     msg = {"from": SimpleNamespace(bare="roomA@conf"), "type": "groupchat"}

@@ -156,7 +156,7 @@ def test_calculate_age(monkeypatch):
     today = datetime.date.today()
     # Birthday already occurred this year
     d = f"{today.year-10}-{today.month:02}-{1 if today.day > 1 else 2:02}"
-    assert birthday_notify._calculate_age(d) == 10 if today.day > 1 else 9
+    assert birthday_notify._calculate_age(d) == (10 if today.day > 1 else 9)
     # Birthday upcoming this year
     month = today.month
     day = today.day+1 if today.day < 28 else 1
@@ -357,8 +357,10 @@ async def test_get_birthday_from_vcard(monkeypatch, bot):
                                                          "Nick")
     assert out == (True, "1995-05-13")
     # Simulate vCard error
-    monkeypatch.setattr(birthday_notify, "get_profile", lambda *a,
-                        **k: (_ for _ in ()).throw(Exception("fail!")))
+    async def raise_get_profile_error(*args, **kwargs):
+        raise Exception("fail!")
+
+    monkeypatch.setattr(birthday_notify, "get_profile", raise_get_profile_error)
     out2 = await birthday_notify._get_birthday_from_vcard(bot, "room@conf",
                                                           "Nick")
     assert out2 == (False, None)

@@ -114,14 +114,14 @@ COMMAND_HELP: dict[str, dict[str, object]] = {
     "rooms set_plugin_defaults": {
         "short": "Restore room plugin toggles to default values.",
         "usage": "{prefix}rooms set_plugin_defaults",
-        "examples": ["{prefix}room spd"],
+        "examples": ["{prefix}rooms spd"],
         "context": "MUC PM only",
         "category": "rooms",
     },
     "rooms plugins": {
         "short": "Show plugin toggle state for the current room.",
         "usage": "{prefix}rooms plugins [all|page|last]",
-        "examples": ["{prefix}room plugins", "{prefix}room plugins all"],
+        "examples": ["{prefix}rooms plugins", "{prefix}rooms plugins all"],
         "context": "MUC PM only",
         "category": "rooms",
     },

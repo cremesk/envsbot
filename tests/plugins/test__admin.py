@@ -51,15 +51,22 @@ async def fake_bot(monkeypatch):
         def __init__(self):
             self.closed = False
             self.path = "/tmp/test.db"
+            self.conn = object()
 
         async def close(self):
             self.closed = True
+
+        async def fetch_one(self, query):
+            if "integrity_check" in query:
+                return ("ok",)
+            return (1,)
 
     class FakePlugins:
         @staticmethod
         def discover():
             return ["x", "y", "z"]
         plugins = {"foo": None, "bar": None}
+        meta = {"foo": {"version": "1.0", "category": "test"}}
 
     class FakeBound:
         def __str__(self): return "bot@domain"
@@ -75,6 +82,8 @@ async def fake_bot(monkeypatch):
     bot.connection_start_time = datetime.now() - timedelta(hours=1,
                                                            minutes=3,
                                                            seconds=2)
+    bot.presence = types.SimpleNamespace(status={"show": "chat", "status": "ready"})
+    bot.avatar_hash = "abc123"
     return bot
 
 
@@ -93,11 +102,10 @@ def test_human_time():
 def test_human_size():
     assert _admin.human_size(0) == "0 B"
     assert _admin.human_size(-1) == "unknown"
-    assert _admin.human_size(1024) == "1.0 KB"
-    assert _admin.human_size(1024*1024) == "1.0 MB"
-    assert _admin.human_size(123456789) == "117.7 MB"
-    assert _admin.human_size(int(1e12)) == "931.3 GB" or _admin.human_size(
-        int(1e12)) == "931.3 GB"
+    assert _admin.human_size(1024) == "1.0 KiB"
+    assert _admin.human_size(1024*1024) == "1.0 MiB"
+    assert _admin.human_size(123456789) == "117.7 MiB"
+    assert _admin.human_size(int(1e12)) == "931.3 GiB"
 
 
 def test_set_bot_start_time_sets_global():
@@ -131,7 +139,15 @@ async def test_bot_status_success_and_all_fields(monkeypatch, fake_bot):
     await _admin.bot_status(fake_bot, Sender(), "nick", [], DummyMsg(), False)
     replies = fake_bot._replies
     assert any(isinstance(r[0], list)
-               and "🤖 Bot Status" in r[0][0] for r in replies)
+               and "🤖 EnvsBot Status" in r[0][0] for r in replies)
+    reply = "\n".join(replies[-1][0])
+    assert "Core:" in reply
+    assert "Runtime:" in reply
+    assert "XMPP:" in reply
+    assert "Plugins:" in reply
+    assert "Database:" in reply
+    assert "Avatar: published" in reply
+    assert "Integrity: ok" in reply
 
 
 @pytest.mark.asyncio
@@ -163,6 +179,29 @@ async def test_bot_status_handles_exception(monkeypatch, fake_bot):
     await _admin.bot_status(fake_bot, Sender(), "nick", [], DummyMsg(), False)
     replies = fake_bot._replies
     assert any("❌" in r[0] for r in replies)
+
+
+@pytest.mark.asyncio
+async def test_bot_status_full_includes_room_and_plugin_details(monkeypatch, fake_bot):
+    _admin.BOT_START_TIME = datetime.now() - timedelta(minutes=5)
+    _admin.JOINED_ROOMS.clear()
+    _admin.JOINED_ROOMS["room@example.org"] = {
+        "nick": "EnvsBot",
+        "role": "moderator",
+        "affiliation": "member",
+        "nicks": {"alice": {}, "bob": {}},
+    }
+    await _admin.bot_status(fake_bot, Sender(), "nick", ["full"], DummyMsg(), False)
+    reply = "\n".join(fake_bot._replies[-1][0])
+    assert "Rooms:" in reply
+    assert "room@example.org | nick=EnvsBot | occupants=2" in reply
+    assert "Loaded plugins:" in reply
+
+
+@pytest.mark.asyncio
+async def test_bot_status_rejects_unknown_args(fake_bot):
+    await _admin.bot_status(fake_bot, Sender(), "nick", ["wat"], DummyMsg(), False)
+    assert "Usage:" in fake_bot._replies[-1][0]
 
 
 @pytest.mark.asyncio

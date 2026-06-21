@@ -121,7 +121,7 @@ Examples assume the default command prefix `,`.
 | `,help all` | Show the full visible help output |
 | `,help <plugin>` | Show focused help for one plugin |
 | `,help <command>` | Show focused help for one command |
-| `,bot status` | Show bot, database, plugin and room status |
+| `,bot status [full]` / `,status [full]` | Show compact or detailed bot, runtime, XMPP, plugin and database status |
 | `,config show [all/page/last]` | Show redacted runtime configuration |
 | `,config validate` | Validate `config.json` |
 | `,config reload` | Reload runtime-safe configuration |

@@ -73,7 +73,7 @@ Lower role values have more privileges. A command is visible when your role is s
 | --- | --- | --- | --- |
 | `,bot restart` | `owner` | `private chat / MUC PM` | Restart the bot process gracefully. |
 | `,bot shutdown` | `owner` | `private chat / MUC PM` | Stop the bot using the configured stop command. |
-| `,bot status` | `admin` | `private chat / MUC PM` | Show bot, database, plugin and room status. |
+| `,bot status` | `admin` | `private chat / MUC PM` | Show bot, runtime, XMPP, plugin and database status. |
 | `,config reload` | `admin` | `private chat / MUC PM` | Reload config.json into the running bot where possible. |
 | `,config show` | `admin` | `private chat / MUC PM` | Show the effective config with secrets redacted. |
 | `,config validate` | `admin` | `private chat / MUC PM` | Validate the current config.json file. |
@@ -241,18 +241,20 @@ Examples:
 
 #### `,bot status`
 
-Show bot, database, plugin and room status.
+Show bot, runtime, XMPP, plugin and database status.
 
 Role: `admin`  
 Context: `private chat / MUC PM`  
 Category: `admin`  
-Usage: `,bot status`
+Usage: `,bot status [full]`
 
-Aliases: `,bot info`
+Aliases: `,bot info`, `,status`
 
 Examples:
 
 - `,bot status`
+- `,status`
+- `,bot status full`
 
 ### birthday_notify
 
@@ -967,8 +969,8 @@ Aliases: `,room plugins`
 
 Examples:
 
-- `,room plugins`
-- `,room plugins all`
+- `,rooms plugins`
+- `,rooms plugins all`
 
 #### `,rooms set_plugin_defaults`
 
@@ -983,7 +985,7 @@ Aliases: `,room set_plugin_defaults`, `,room spd`, `,rooms spd`
 
 Examples:
 
-- `,room spd`
+- `,rooms spd`
 
 #### `,rooms sync`
 

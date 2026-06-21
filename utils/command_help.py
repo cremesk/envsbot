@@ -42,9 +42,9 @@ COMMAND_HELP: dict[str, dict[str, object]] = {
         "category": "admin",
     },
     "bot status": {
-        "short": "Show bot, database, plugin and room status.",
-        "usage": "{prefix}bot status",
-        "examples": ["{prefix}bot status"],
+        "short": "Show bot, runtime, XMPP, plugin and database status.",
+        "usage": "{prefix}bot status [full]",
+        "examples": ["{prefix}bot status", "{prefix}status", "{prefix}bot status full"],
         "context": "private chat / MUC PM",
         "category": "admin",
     },
